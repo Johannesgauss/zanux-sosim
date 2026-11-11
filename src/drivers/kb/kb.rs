@@ -5,6 +5,10 @@ static mut KB_BUFFER: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 static mut HEAD: usize = 0;
 static mut TAIL: usize = 0;
 
+static mut RAW_BUFFER: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
+static mut RAW_HEAD: usize = 0;
+static mut RAW_TAIL: usize = 0;
+
 static mut SHIFT: bool = false;
 static mut CAPS: bool = false;
 
@@ -66,8 +70,34 @@ pub extern "C" fn kb_has_char() -> bool {
 }
 
 #[no_mangle]
+pub extern "C" fn kb_pop_scancode() -> i32 {
+    unsafe {
+        if RAW_TAIL == RAW_HEAD {
+            return -1;
+        } else {
+            let sc = match RAW_BUFFER.get(RAW_TAIL) {
+                Some(&b) => b as i32,
+                None => -1,
+            };
+            RAW_TAIL = (RAW_TAIL + 1) % BUFFER_SIZE;
+            sc
+        }
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn kb_handler() {
     let scancode = inb(0x60);
+
+    unsafe {
+        let next_raw = (RAW_HEAD + 1) % BUFFER_SIZE;
+        if next_raw != RAW_TAIL {
+            if let Some(slot) = RAW_BUFFER.get_mut(RAW_HEAD) {
+                *slot = scancode;
+            }
+            RAW_HEAD = next_raw;
+        }
+    }
 
     if scancode == 0xAA || scancode == 0xB6 {
         unsafe { SHIFT = false; }
