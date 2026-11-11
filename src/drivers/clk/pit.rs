@@ -14,7 +14,8 @@ const PIT_DATA_CHANNEL0:u16 = 0x40;
 #[no_mangle]
 pub extern "C" fn timer_phase(hz: i32)
 {
-    let divisor:u16 = (1193180 / hz) as u16;
+    let safe_hz = if hz <= 0 { 100 } else { hz };
+    let divisor: u16 = (1193180 / safe_hz) as u16;
     outb(PIT_COMMAND_REG, 0b00110000 | 0b00000110);
     outb(PIT_DATA_CHANNEL0, (divisor & 0xFF) as u8);
     outb(PIT_DATA_CHANNEL0, (divisor >> 8) as u8);
