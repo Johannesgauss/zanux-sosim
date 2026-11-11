@@ -8,6 +8,7 @@
 
 extern volatile uint64_t limine_base_revision[];
 extern volatile struct limine_framebuffer_request framebuffer_request;
+extern volatile struct limine_module_request module_request;
 
 void hcf(void);
 // Build a pixel from 8-bit red, green and blue values following the channel
