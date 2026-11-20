@@ -5,3 +5,6 @@ pub mod kb;
 
 #[path = "clk/pit.rs"]
 pub mod pit;
+
+#[path = "disk/ata.rs"]
+pub mod ata;
