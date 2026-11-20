@@ -3,6 +3,7 @@
 #include "mem/kmalloc.h"
 #include "util/memory.h"
 #include "fs_macros.h"
+#include "gpt.h"
 
 static struct gpt_protective_mbr {
 	uint8_t boot_indicator;	
