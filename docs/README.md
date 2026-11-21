@@ -24,7 +24,7 @@ Documentação técnica de toda a arquitetura do **Zanux** (kernel freestanding 
 8. **[07 — Justificativa Linha a Linha de `src/sched/contract/`](./07_justificativa_contrato.md)**
    - Explicação de cada constante, enum, campo de struct e função dos headers congelados do contrato para revisão antes de entregar aos colegas.
 9. **[08 — Divisão do Grupo e Cronograma (Entrega: 04/Dez)](./08_divisao_do_grupo.md)**
-   - Quem faz o quê, arquivos exatos de cada integrante, comandos de 1 linha sem QEMU e cronograma até a entrega.
+   - Pastas individuais por integrante: **[Paulo](./equipe/paulo/README.md)** · **[Dante](./equipe/dante/README.md)** · **[Petra](./equipe/petra/README.md)** · **[João Vitor](./equipe/joao_vitor/README.md)**.
 
 ---
 

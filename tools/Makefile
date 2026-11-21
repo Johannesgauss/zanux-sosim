@@ -2,7 +2,7 @@ CC ?= cc
 CFLAGS := -O2 -Wall -Wextra -std=gnu11
 
 POLICY_SRCS := $(wildcard ../src/sched/policies/*.c)
-SIM_CORE    := ../src/sched/sim_core.c
+SIM_CORE    := ../src/sched/sim/sim_core.c
 CONTRACT    := ../src/sched/contract/sim.h
 
 .PHONY: test-sched test-ui clean

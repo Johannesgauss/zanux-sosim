@@ -246,7 +246,7 @@ int64_t sys_readdir(size_t index, char name_out[16], uint32_t *size_out)
 	return 0;
 }
 
-#include "sched/sim_engine.h"
+#include "sched/sim/sim_engine.h"
 
 int64_t sys_sim_start(const void *cfg)
 {

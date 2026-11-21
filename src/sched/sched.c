@@ -1,5 +1,5 @@
 #include "sched/proc.h"
-#include "sched/sim_engine.h"
+#include "sched/sim/sim_engine.h"
 #include "proc_util.h"
 
 #define SCHED_MAX_PROCS 64

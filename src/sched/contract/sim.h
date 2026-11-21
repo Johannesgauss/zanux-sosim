@@ -118,7 +118,7 @@ struct sim {
 	int32_t  cur, last, pending_next;
 };
 
-/* --- Scheduling algorithms (src/sched/policies/*.c) ---
+/* --- Scheduling algorithms (src/sched/policies/) ---
  * Return index 0..task_count-1 of the task to run on tick `now`, or -1 if CPU is idle. */
 int pick_fcfs   (struct task *tasks, uint32_t task_count, int current_idx, uint32_t now, uint32_t quantum);
 int pick_sjf    (struct task *tasks, uint32_t task_count, int current_idx, uint32_t now, uint32_t quantum);
@@ -128,7 +128,7 @@ int pick_edf    (struct task *tasks, uint32_t task_count, int current_idx, uint3
 int pick_cfs    (struct task *tasks, uint32_t task_count, int current_idx, uint32_t now, uint32_t quantum);
 int pick_autoral(struct task *tasks, uint32_t task_count, int current_idx, uint32_t now, uint32_t quantum);
 
-/* --- Simulation engine (src/sched/sim_core.c) --- */
+/* --- Simulation engine (src/sched/sim/sim_core.c) --- */
 bool sim_init(struct sim *sim);                               /* Reset runtime state & validate inputs */
 bool sim_step(struct sim *sim, int *active_task);             /* Advance 1 discrete tick; false when done */
 void sim_notify_exit(struct sim *sim, uint32_t task_idx);     /* Mark real burst==0 task done on sys_exit() */

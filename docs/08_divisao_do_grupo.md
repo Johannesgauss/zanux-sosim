@@ -5,40 +5,23 @@
 
 ---
 
-## 1. Divisão de Responsabilidades
+## 1. Divisão de Responsabilidades (Pastas Individuais)
 
-| Integrante | Papel | Arquivos que edita | Como testa em 1 segundo |
+| Integrante | Guia Individual | Arquivos que edita | Como testa em 1 segundo |
 | :--- | :--- | :--- | :--- |
-| **Paulo** | Kernel, contrato `sim.h`, boot em pendrive USB real e integração final | `src/` (exceto `policies/`), `boot/limine.conf`, `GNUmakefile` | `make run` |
-| **Integrante #1** *(Game/Web/Rust + IA)* | **UI Nativa no Framebuffer** (Gantt + tabela + resumo + 3 janelas animadas: Plasma+Primos, Game of Life, Bubble Sort + modo passo-a-passo) **+ Política Autoral (IA)** *(+ bônus VM opcional)* | `user/simso/simso_render.c` (usando `user/libc/include/zgfx.h`) e `src/sched/policies/autoral.c` | `make -C tools test-ui` e `make -C tools test-sched` |
-| **Integrante #2** *(C++)* | **5 Políticas Padrão** (`fcfs`, `sjf`, `prio`, `edf`, `cfs` — `rr.c` já está pronta como referência!) + conferência manual das métricas do *Caso Base* e *Caso com Ociosidade* | `src/sched/policies/fcfs.c`, `sjf.c`, `prio.c`, `edf.c`, `cfs.c` *(15–30 linhas de C puro cada)* | `make -C tools test-sched` |
-| **Integrante #3** *(Apoio / Entregáveis)* | Casos de teste extras, montagem do **relatório (4–6 páginas)** com tabelas e prints do Gantt, edição do **vídeo (≤ 6 min)** | Relatório, casos de teste e vídeo | — |
+| **Paulo** | [`docs/equipe/paulo/`](./equipe/paulo/README.md) | Kernel (`src/` exceto `policies/`), contrato `sim.h`, pendrive USB e integração final | `make run` |
+| **Dante** *(Game/Web/Rust + IA)* | [`docs/equipe/dante/`](./equipe/dante/README.md) | `user/simso/simso_render.c` (UI nativa com `zgfx.h`) e `src/sched/policies/autoral.c` (IA) *(+ bônus VM opcional)* | `make -C tools test-ui` e `make -C tools test-sched` |
+| **Petra** *(C++)* | [`docs/equipe/petra/`](./equipe/petra/README.md) | `src/sched/policies/{fcfs,sjf,prio,edf,cfs}.c` (5 políticas padrão; `rr.c` já pronta como referência) | `make -C tools test-sched` |
+| **João Vitor** *(Entregáveis)* | [`docs/equipe/joao_vitor/`](./equipe/joao_vitor/README.md) | Casos de teste extras, relatório (4–6 páginas) e vídeo (≤ 6 min) *(fora do caminho crítico de código)* | `make -C tools test-sched` / `test-ui` |
 
 ---
 
-## 2. Primeiros Passos para Cada Colega (5 minutos)
-
-1. Baixar a branch `feat/simso`:
-   ```bash
-   git checkout feat/simso
-   ```
-2. Ler **`src/sched/contract/sim.h`** (~70 linhas, autoexplicativo) e **`tools/README.md`**.
-3. Rodar seu comando de teste local:
-   - **Algoritmos (#1 e #2):** `make -C tools test-sched`
-   - **Visualização (#1):** `make -C tools test-ui` → abre `tools/out_gantt.ppm`
-
-> **Dica para o Integrante #1 (UI):** `user/libc/include/zgfx.h` já fornece `zgfx_clear`, `zgfx_rect`, `zgfx_vline`, `zgfx_panel`, `zgfx_window`, `zgfx_progress`, `zgfx_text` e `zgfx_printf` (com suporte a `%.2f` em Ring 3 via SSE!).
-
-> **Dica para o Integrante #2 (Políticas):** Cada arquivo em `src/sched/policies/` tem só **1 função** `pick_xxx(tasks, task_count, current_idx, now, quantum)`. Não use `<vector>`, `<string>` ou `float` — apenas `for` e `uint32_t` (veja `rr.c` e `fcfs.c` como exemplo).
-
----
-
-## 3. Cronograma até 04/Dezembro
+## 2. Cronograma até 04/Dezembro
 
 | Período | Marco |
 | :--- | :--- |
-| **21/Nov (Hoje)** | Push de `feat/simso` com `sim.h` congelado e harnesses funcionando. |
-| **22/Nov – 28/Nov** | #2 implementa e valida `fcfs`, `sjf`, `prio`, `edf`, `cfs`; #1 implementa `autoral.c` e o layout completo em `simso_render.c`; Paulo valida boot no pendrive USB no notebook real da apresentação. |
-| **29/Nov – 01/Dez** | Integração final na `feat/simso`, teste dos 7 algoritmos + passo-a-passo no pendrive USB real, coleta de prints e métricas finais. |
-| **02/Dez – 03/Dez** | Redação/revisão do relatório (4–6 páginas), gravação/edição do vídeo (≤ 6 min) e ensaio rápido da arguição. |
+| **21/Nov (Hoje)** | Repo [`zanux-sosim`](https://github.com/Johannesgauss/zanux-sosim) no ar com `sim.h` congelado e pastas individuais prontas. |
+| **22/Nov – 28/Nov** | **Petra** implementa/valida `fcfs`, `sjf`, `prio`, `edf`, `cfs`; **Dante** implementa `autoral.c` e a UI completa em `simso_render.c`; **Paulo** valida boot no pendrive USB real; **João Vitor** prepara casos de teste e estrutura do relatório. |
+| **29/Nov – 01/Dez** | Integração final, teste dos 7 algoritmos + passo-a-passo no pendrive USB real, coleta de prints e métricas finais. |
+| **02/Dez – 03/Dez** | Fechamento do relatório (4–6 páginas), gravação/edição do vídeo (≤ 6 min) e ensaio rápido da arguição. |
 | **04/Dez** | Entrega final. |
