@@ -86,6 +86,19 @@ pub extern "C" fn kb_pop_scancode() -> i32 {
 }
 
 #[no_mangle]
+pub extern "C" fn kb_drain() {
+    unsafe {
+        HEAD = 0;
+        TAIL = 0;
+        RAW_HEAD = 0;
+        RAW_TAIL = 0;
+    }
+    while (inb(0x64) & 1) != 0 {
+        let _ = inb(0x60);
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn kb_handler() {
     let scancode = inb(0x60);
 
