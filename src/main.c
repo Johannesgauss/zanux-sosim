@@ -4,6 +4,7 @@
 #include "arch/int/idt.h"
 #include "drivers/clk/clk.h"
 #include "drivers/kb/kb.h"
+#include "drivers/disk/blk.h"
 #include "fs/gpt.h"
 #include "fs/fat32.h"
 #include "sched/proc.h"
@@ -36,6 +37,29 @@ void kmain()
 	if (!cmdline_request.response || !cmdline_request.response->cmdline)
 		panic("NO KERNEL CMDLINE FROM LIMINE");
 
+	if (module_request.response && module_request.response->module_count > 0) {
+		struct limine_file *mod = NULL;
+		for (uint64_t i = 0; i < module_request.response->module_count; i++) {
+			struct limine_file *cand = module_request.response->modules[i];
+			if (!cand || !cand->path)
+				continue;
+			// Match module ending in "disk.img"
+			const char *p = cand->path;
+			size_t len = 0;
+			while (p[len]) len++;
+			if (len >= 8 &&
+			    p[len-8]=='d' && p[len-7]=='i' && p[len-6]=='s' && p[len-5]=='k' &&
+			    p[len-4]=='.' && p[len-3]=='i' && p[len-2]=='m' && p[len-1]=='g') {
+				mod = cand;
+				break;
+			}
+		}
+		if (mod) {
+			blk_init_ramdisk(mod->address, mod->size);
+			kprint("[ SUCCESS ] RAM-disk module attached (USB/pendrive mode).\n");
+		}
+	}
+
 	struct gpt_partition_entry root_part = gpt_partition_from_cmdline(cmdline_request.response->cmdline);
 	if (!fat32_init(root_part.start_lba))
 		panic("ROOT PARTITION IS NOT FAT32");
@@ -50,6 +74,7 @@ void kmain()
 	fat32_close_file(shell);
 	kprint("[ SUCCESS ] SHELL.BIN loaded.\n");
 
+	arch_fpu_init();
 	syscall_init();
 	irqr_add(1, kb_handler);
 	kb_drain();

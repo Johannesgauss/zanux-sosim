@@ -533,12 +533,16 @@ static void SetVoiceVolume(opl_voice_t *voice, unsigned int volume)
     voice->note_volume = volume;
     genmidi_voice_t *opl_voice = &voice->current_instr->voices[voice->current_instr_voice];
 
-    unsigned int midi_volume = 2 * (volume_mapping_table[voice->channel->volume] + 1);
-    unsigned int full_volume = (volume_mapping_table[voice->note_volume] * midi_volume) >> 9;
-    // Boost OPL2 output volume (~+12 dB) so background music is clearly audible.
-    full_volume = (full_volume * 3) / 2 + 8;
-    if (full_volume > 0x3f)
-        full_volume = 0x3f;
+    unsigned int full_volume = 0;
+    if (current_music_volume > 0 && voice->channel->volume > 0 && voice->note_volume > 0)
+    {
+        unsigned int midi_volume = 2 * (volume_mapping_table[voice->channel->volume] + 1);
+        full_volume = (volume_mapping_table[voice->note_volume] * midi_volume) >> 9;
+        // Boost OPL2 output proportionally so max menu volume is loud, while 0 = true mute.
+        full_volume = (full_volume * 7) / 4;
+        if (full_volume > 0x3f)
+            full_volume = 0x3f;
+    }
     unsigned int car_volume = 0x3f - full_volume;
 
     if (car_volume != (voice->car_volume & 0x3f))

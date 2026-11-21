@@ -1,4 +1,4 @@
-#include "drivers/disk/ata.h"
+#include "drivers/disk/blk.h"
 #include "util/panic.h"
 #include "mem/kmalloc.h"
 #include "util/memory.h"
@@ -36,7 +36,7 @@ static struct gpt_partition_table_header {
 struct gpt_partition_entry *gpt_table_get()
 {
 	uint8_t gpt_protective_mbr_buf[SECTOR_SIZE];
-	if(!ata_read_sectors(0, 1, gpt_protective_mbr_buf))
+	if(!blk_read_sectors(0, 1, gpt_protective_mbr_buf))
 	// TODO: bad practice
 		panic("ATA DRIVER COULD NOT READ IT!");
 	s_gpt_protective_mbr = *(struct gpt_protective_mbr*)(gpt_protective_mbr_buf + 446);
@@ -45,13 +45,13 @@ struct gpt_partition_entry *gpt_table_get()
 		panic("Only GPT, not MBR");
 	s_gpt_partition_table_header = kmalloc(SECTOR_SIZE);
 
-	if(!ata_read_sectors(1, 1, (uint8_t*)s_gpt_partition_table_header))
+	if(!blk_read_sectors(1, 1, (uint8_t*)s_gpt_partition_table_header))
 		panic("ATA DRIVER COULD NOT READ IT!");
 	uint32_t table_size = s_gpt_partition_table_header->partition_entry_size * s_gpt_partition_table_header->partition_entries_num;
 	uint32_t table_sectors = (table_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
 	struct gpt_partition_entry *gpt_pe_array = kmalloc(table_size);
 
-	if(!ata_read_sectors(s_gpt_partition_table_header->partition_entry_lba, table_sectors, (uint8_t*)gpt_pe_array))
+	if(!blk_read_sectors(s_gpt_partition_table_header->partition_entry_lba, table_sectors, (uint8_t*)gpt_pe_array))
 		panic("ATA DRIVER COULD NOT READ IT!");
 
 	return gpt_pe_array;

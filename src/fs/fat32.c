@@ -1,4 +1,4 @@
-#include "drivers/disk/ata.h"
+#include "drivers/disk/blk.h"
 #include "util/panic.h"
 #include "mem/kmalloc.h"
 #include "util/memory.h"
@@ -74,7 +74,7 @@ static uint32_t s_cached_sector_slice_fat_lba = 0xFFFFFFFF;
 
 bool fat32_init(uint64_t start_lba)
 {
-	if (!ata_read_sectors(start_lba, 1, (uint8_t*)&s_fat32_volume_id))
+	if (!blk_read_sectors(start_lba, 1, (uint8_t*)&s_fat32_volume_id))
 		return false;
 
 	if (s_fat32_volume_id.bootable_partition_signature[0] != 0x55 || s_fat32_volume_id.bootable_partition_signature[1] != 0xAA)
@@ -100,7 +100,7 @@ static inline struct file fat32_open_cluster_as_file(uint32_t cluster, size_t cl
 
 	file.size = clusters_num * CLUSTER_BYTES;
 	file.mptr = kmalloc(clusters_num * CLUSTER_BYTES);
-	if (!ata_read_sectors(cluster_to_lba(file.start_cluster), s_fat32_volume_id.bpb.sectors_per_cluster, (uint8_t*)file.mptr))
+	if (!blk_read_sectors(cluster_to_lba(file.start_cluster), s_fat32_volume_id.bpb.sectors_per_cluster, (uint8_t*)file.mptr))
 		panic("COULD NOT READ FILE!");
 
 	return file;
@@ -132,7 +132,7 @@ static inline uint32_t fat32_next_cluster(uint32_t cluster)
 	uint32_t index = cluster % ENTRIES_PER_SECTOR;
 	uint32_t new_fat_sector_slice_lba = s_fat_first_lba + (cluster/ ENTRIES_PER_SECTOR);
 	if (new_fat_sector_slice_lba != s_cached_sector_slice_fat_lba) {
-		if (!ata_read_sectors(new_fat_sector_slice_lba, 1, (uint8_t*)s_cached_sector_slice_fat_table))
+		if (!blk_read_sectors(new_fat_sector_slice_lba, 1, (uint8_t*)s_cached_sector_slice_fat_table))
 			panic("COULD NOT READ FAT SECTOR!");
 		s_cached_sector_slice_fat_lba = new_fat_sector_slice_lba;
 	}
@@ -193,7 +193,7 @@ FOUND:;
 			run_sectors += spc;
 			next = fat32_next_cluster(current_cluster);
 		}
-		if (!ata_read_sectors(cluster_to_lba(run_start), (uint8_t)run_sectors, dst))
+		if (!blk_read_sectors(cluster_to_lba(run_start), (uint8_t)run_sectors, dst))
 			panic("FILE COULD NOT BE READ");
 		dst += (size_t)run_sectors * SECTOR_SIZE;
 		current_cluster = next;

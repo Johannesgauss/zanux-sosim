@@ -4,7 +4,12 @@
 #include "util/memory.h"
 #include "util/alias.h"
 
-virt_array g_pml4;
+static inline virt_array current_pml4(void)
+{
+	phy_t cr3;
+	asm volatile ("mov %%cr3, %0;" : "=r"(cr3));
+	return phy_to_virt(cr3 & GET_PHY_ADDR);
+}
 
 static inline void pgtotable(virt_t page)
 {
@@ -13,6 +18,8 @@ static inline void pgtotable(virt_t page)
 
 void vmm_map(virt_t addr)
 {
+	virt_array pml4 = current_pml4();
+
 	// 9 9 9 9 12 = 48
 	phy_t pml4_offset = (phy_t) ((uint64_t)addr >> (9 + 9 + 9 + 12) & 0x1FF);
 	phy_t pdpt_offset = (phy_t) ((uint64_t)addr >> (9 + 9 + 12)) & 0x1FF;
@@ -25,12 +32,12 @@ void vmm_map(virt_t addr)
 	virt_array page;
 
 // TODO: Of course, it's not a great idea all pages having US bit on. Change it later!
-	if (!(g_pml4[pml4_offset] & SET_P)) {
+	if (!(pml4[pml4_offset] & SET_P)) {
 		virt_t new_page = pmm_alloc();
 		pgtotable(new_page);
-		g_pml4[pml4_offset] = virt_to_phy(new_page) | SET_P | SET_RW | SET_US;
+		pml4[pml4_offset] = virt_to_phy(new_page) | SET_P | SET_RW | SET_US;
 	}
-	pdpt = phy_to_virt((g_pml4[pml4_offset] & GET_PHY_ADDR));
+	pdpt = phy_to_virt((pml4[pml4_offset] & GET_PHY_ADDR));
 	if (!(pdpt[pdpt_offset] & SET_P)) {
 		virt_t new_page = pmm_alloc();
 		pgtotable(new_page);
@@ -54,16 +61,14 @@ void vmm_map(virt_t addr)
 // TODO: copy the cr3 to a new one instead
 bool vmm_init()
 {
-	phy_t cr3;
-	asm volatile ("mov %%cr3, %0;" : "=r"(cr3) ::);
-	virt_array pml4_old = phy_to_virt((phy_t) cr3 & GET_PHY_ADDR);
-	g_pml4 = pmm_alloc();
+	virt_array pml4_old = current_pml4();
+	virt_array pml4 = pmm_alloc();
 
 	for (int i = 256; i < 512; i++) {
 		if (pml4_old[i] & SET_P)
-			g_pml4[i] = pml4_old[i];
+			pml4[i] = pml4_old[i];
 	}
-	asm volatile ("mov %0, %%cr3;" :: "r"(virt_to_phy(g_pml4)) :);
+	asm volatile ("mov %0, %%cr3;" :: "r"(virt_to_phy(pml4)) : "memory");
 	pmm_free(pml4_old);
 	return true;
 }
@@ -71,6 +76,8 @@ bool vmm_init()
 // TODO a better vmm_free
 void vmm_free(virt_t addr)
 {
+	virt_array pml4 = current_pml4();
+
 	phy_t pml4_offset = (phy_t) ((uint64_t)addr >> (9 + 9 + 9 + 12));
 	phy_t pdpt_offset = (phy_t) ((uint64_t)addr >> (9 + 9 + 12)) & 0x1FF;
 	phy_t pd_offset = (phy_t) ((uint64_t)addr >> (9 + 12)) & 0x1FF;
@@ -81,8 +88,8 @@ void vmm_free(virt_t addr)
 	virt_array pt;
 	virt_array page;
 
-	if (!(g_pml4[pml4_offset] & SET_P)) goto PANIC;
-	pdpt = phy_to_virt((g_pml4[pml4_offset] & GET_PHY_ADDR));
+	if (!(pml4[pml4_offset] & SET_P)) goto PANIC;
+	pdpt = phy_to_virt((pml4[pml4_offset] & GET_PHY_ADDR));
 
 	if (!(pdpt[pdpt_offset] & SET_P)) goto PANIC;
 	pd = phy_to_virt((pdpt[pdpt_offset] & GET_PHY_ADDR));

@@ -6,7 +6,8 @@
 
 # Default user QEMU flags. These are appended to the QEMU command calls.
 QEMUFLAGS := -m 2G -enable-kvm -cpu host \
-    -audiodev pa,id=snd0 \
+    -display sdl \
+    -audiodev pipewire,id=snd0 \
     -machine q35,pcspk-audiodev=snd0 \
     -device adlib,audiodev=snd0 \
     -device sb16,audiodev=snd0
@@ -19,6 +20,7 @@ override QEMU_UEFI_FLAGS := \
 
 override IMAGE_NAME := template
 override OUTPUT := kernel
+DISK_IMG := disk.img
 
 # User controllable size of the HDD image, in MiB.
 HDD_SIZE := 64
@@ -93,11 +95,14 @@ all-hdd: $(IMAGE_NAME).hdd
 kernel: bin/$(OUTPUT)
 
 .PHONY: run
-run: $(IMAGE_NAME).iso
+run: $(IMAGE_NAME).iso $(DISK_IMG)
 	qemu-system-x86_64 \
 		$(QEMU_MACHINE_FLAGS) \
 		-cdrom $(IMAGE_NAME).iso \
 		-boot d \
+		-device piix3-ide,id=ide \
+		-drive file=$(DISK_IMG),format=raw,if=none,id=d0 \
+		-device ide-hd,drive=d0,bus=ide.0 \
 		$(QEMUFLAGS)
 
 .PHONY: run-debug
@@ -203,6 +208,7 @@ override CFLAGS += \
 override CPPFLAGS := \
     -nostdinc \
     -I src \
+    -I src/sched/contract \
     -I src/drivers/gfx \
     -isystem $(shell $(CC) -print-file-name=include) \
     $(CPPFLAGS) \
@@ -326,10 +332,11 @@ obj/src/lib.rs.o: src/lib.rs $(filter-out src/lib.rs,$(RSFILES)) GNUmakefile
 	rustc $(RUSTFLAGS) src/lib.rs -o $@
 
 # ISO creation
-$(IMAGE_NAME).iso: boot/limine-binary/limine bin/$(OUTPUT)
+$(IMAGE_NAME).iso: boot/limine-binary/limine boot/limine.conf bin/$(OUTPUT) $(DISK_IMG)
 	rm -rf iso_root
 	mkdir -p iso_root/boot
 	cp bin/$(OUTPUT) iso_root/boot/
+	cp "$(DISK_IMG)" iso_root/boot/disk.img
 	if [ -f "$(DOOM_DIR)/doom1.wad" ]; then cp "$(DOOM_DIR)/doom1.wad" iso_root/boot/doom1.wad; fi
 	mkdir -p iso_root/boot/limine
 	cp boot/limine.conf boot/limine-binary/limine-bios.sys boot/limine-binary/limine-bios-cd.bin boot/limine-binary/limine-uefi-cd.bin iso_root/boot/limine/
@@ -358,7 +365,6 @@ $(IMAGE_NAME).hdd: boot/limine-binary/limine bin/$(OUTPUT)
 	mcopy -i $(IMAGE_NAME).hdd@@$(HDD_PART_OFFSET) boot/limine-binary/BOOTIA32.EFI ::/EFI/BOOT
 
 # Pure-GPT FAT32 data disk image (for testing FAT32 + ATA PIO)
-DISK_IMG := disk.img
 DISK_SIZE := 32
 DISK_PART_START := 2048
 DISK_PART_OFFSET := 1048576
@@ -366,11 +372,19 @@ DISK_PART_UUID := 11223344-5566-7788-99AA-BBCCDDEEFF00
 DISK_FILES :=
 
 $(DISK_IMG):
+	$(MAKE) -C user/shell
+	$(MAKE) -C user/worker
+	$(MAKE) -C user/simso
 	rm -f $(DISK_IMG)
 	dd if=/dev/zero of=$(DISK_IMG) bs=1M count=$(DISK_SIZE)
 	printf 'label: gpt\nstart=$(DISK_PART_START), type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, uuid=$(DISK_PART_UUID)\n' | sfdisk $(DISK_IMG)
 	mformat -i $(DISK_IMG)@@$(DISK_PART_OFFSET) -F ::
 	printf 'Hello from FAT32!\n' | mcopy -i $(DISK_IMG)@@$(DISK_PART_OFFSET) - ::/HELLO.TXT
+	mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/shell/SHELL.BIN ::/
+	mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/worker/WORKER.BIN ::/
+	mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/simso/SIMSO.BIN ::/
+	if [ -f "user/doom/DOOM.BIN" ]; then mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/doom/DOOM.BIN ::/; fi
+	if [ -f "$(DOOM_DIR)/doom1.wad" ]; then mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) "$(DOOM_DIR)/doom1.wad" ::/DOOM1.WAD; fi
 	@for f in $(DISK_FILES); do \
 		mcopy -i $(DISK_IMG)@@$(DISK_PART_OFFSET) "$$f" ::/ ; \
 	done

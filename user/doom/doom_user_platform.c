@@ -145,50 +145,97 @@ void doom_panic_screen(const char *msg)
 	sys_exit(1);
 }
 
-static const uint16_t s_pcspk_divisors[96] = {
-	0,
-	6818, 6628, 6449, 6279, 6087, 5906, 5736, 5575,
-	5423, 5279, 5120, 4971, 4830, 4697, 4554, 4435,
-	4307, 4186, 4058, 3950, 3836, 3728, 3615, 3519,
-	3418, 3323, 3224, 3131, 3043, 2960, 2875, 2794,
-	2711, 2633, 2560, 2485, 2415, 2348, 2281, 2213,
-	2153, 2089, 2032, 1975, 1918, 1864, 1810, 1757,
-	1709, 1659, 1612, 1565, 1521, 1478, 1435, 1395,
-	1355, 1316, 1280, 1242, 1207, 1173, 1140, 1107,
-	1075, 1045, 1015,  986,  959,  931,  905,  879,
-	 854,  829,  806,  783,  760,  739,  718,  697,
-	 677,  658,  640,  621,  604,  586,  570,  553,
-	 538,  522,  507,  493,  479,  465,  452
+/*
+ * 8-channel digital PCM mixer for Doom's native `ds*` 8-bit unsigned SFX lumps,
+ * output to Sound Blaster 16 via `sys_audio_write()` at 11025 Hz.
+ * Respects Doom's menu SFX Volume slider (`vol` in 0..127).
+ */
+#define SFX_NUM_CHANNELS  8
+#define SFX_MIX_CHUNK     512
+#define SFX_OUT_RATE      11025U
+
+struct sfx_channel {
+	const uint8_t *samples;
+	uint32_t len;
+	uint32_t pos_fp;   /* 16.16 fixed-point sample position */
+	uint32_t step_fp;  /* 16.16 fixed-point step (sample_rate / 11025) */
+	int vol;           /* 0..127 from Doom's S_StartSound / S_UpdateSounds */
+	bool active;
 };
 
-static const uint8_t *s_sfx_samples = NULL;
-static uint32_t s_sfx_len = 0;
-static uint32_t s_sfx_start_ms = 0;
-static int s_sfx_prio = -1;
-static uint16_t s_last_div = 0xFFFF;
+static struct sfx_channel s_ch[SFX_NUM_CHANNELS];
+static uint8_t s_mix_buf[SFX_MIX_CHUNK];
+static uint32_t s_mix_pending = 0;
+static uint32_t s_mix_off = 0;
 
-static void pcspk_set(uint16_t div)
+static void mix_and_feed_sb16(void)
 {
-	if (div != s_last_div) {
-		sys_pcspk(div);
-		s_last_div = div;
+	/* Try to drain any leftover bytes from the previous chunk first. */
+	if (s_mix_pending > 0) {
+		int64_t w = sys_audio_write(s_mix_buf + s_mix_off, s_mix_pending);
+		if (w <= 0)
+			return;
+		s_mix_off += (uint32_t)w;
+		s_mix_pending -= (uint32_t)w;
+		if (s_mix_pending > 0)
+			return;
+	}
+
+	/* Generate and push up to 4 chunks per update (~180 ms lookahead max). */
+	for (int iter = 0; iter < 4; iter++) {
+		for (uint32_t i = 0; i < SFX_MIX_CHUNK; i++) {
+			int32_t acc = 0;
+			for (int c = 0; c < SFX_NUM_CHANNELS; c++) {
+				if (!s_ch[c].active)
+					continue;
+				uint32_t idx = s_ch[c].pos_fp >> 16;
+				if (idx >= s_ch[c].len) {
+					s_ch[c].active = false;
+					continue;
+				}
+				int32_t s = (int32_t)s_ch[c].samples[idx] - 128;
+				/* Boosted linear volume (vol 0..127 -> ~1.5x gain at max, 0 = mute). */
+				acc += (s * s_ch[c].vol * 3) >> 8;
+				s_ch[c].pos_fp += s_ch[c].step_fp;
+			}
+			acc += 128;
+			if (acc < 0) acc = 0;
+			if (acc > 255) acc = 255;
+			s_mix_buf[i] = (uint8_t)acc;
+		}
+
+		int64_t w = sys_audio_write(s_mix_buf, SFX_MIX_CHUNK);
+		if (w <= 0) {
+			s_mix_off = 0;
+			s_mix_pending = SFX_MIX_CHUNK;
+			return;
+		}
+		if ((uint32_t)w < SFX_MIX_CHUNK) {
+			s_mix_off = (uint32_t)w;
+			s_mix_pending = SFX_MIX_CHUNK - (uint32_t)w;
+			return;
+		}
 	}
 }
 
 static bool pcsound_init(bool use_sfx_prefix)
 {
 	(void)use_sfx_prefix;
-	s_sfx_samples = NULL;
-	s_sfx_len = 0;
-	s_sfx_prio = -1;
-	pcspk_set(0);
+	for (int i = 0; i < SFX_NUM_CHANNELS; i++)
+		s_ch[i].active = false;
+	s_mix_pending = 0;
+	s_mix_off = 0;
+	sys_pcspk(0);
+	sys_audio_write(NULL, 0);
 	return true;
 }
 
 static void pcsound_shutdown(void)
 {
-	s_sfx_samples = NULL;
-	pcspk_set(0);
+	for (int i = 0; i < SFX_NUM_CHANNELS; i++)
+		s_ch[i].active = false;
+	sys_audio_write(NULL, 0);
+	sys_pcspk(0);
 }
 
 static int pcsound_get_lump(sfxinfo_t *sfx)
@@ -198,37 +245,29 @@ static int pcsound_get_lump(sfxinfo_t *sfx)
 	if (sfx->link)
 		sfx = sfx->link;
 	char namebuf[16];
-	snprintf(namebuf, sizeof(namebuf), "dp%s", sfx->name);
+	snprintf(namebuf, sizeof(namebuf), "ds%s", sfx->name);
 	return W_CheckNumForName(namebuf);
 }
 
 static void pcsound_update(void)
 {
-	if (!s_sfx_samples)
-		return;
-	uint32_t elapsed_ms = sys_ticks_ms() - s_sfx_start_ms;
-	uint32_t pos = (elapsed_ms * 140U) / 1000U;
-	if (pos >= s_sfx_len) {
-		s_sfx_samples = NULL;
-		s_sfx_prio = -1;
-		pcspk_set(0);
-		return;
-	}
-	uint8_t tone = s_sfx_samples[pos];
-	pcspk_set((tone < 96) ? s_pcspk_divisors[tone] : 0);
+	mix_and_feed_sb16();
 }
 
 static void pcsound_update_params(int ch, int vol, int sep)
 {
-	(void)ch; (void)vol; (void)sep;
+	(void)sep;
+	if (ch < 0 || ch >= SFX_NUM_CHANNELS)
+		return;
+	if (vol < 0) vol = 0;
+	if (vol > 127) vol = 127;
+	s_ch[ch].vol = vol;
 }
 
 static int pcsound_start(sfxinfo_t *sfxinfo, int ch, int vol, int sep)
 {
-	(void)vol; (void)sep;
-	if (!sfxinfo)
-		return -1;
-	if (s_sfx_samples && sfxinfo->priority > s_sfx_prio)
+	(void)sep;
+	if (!sfxinfo || ch < 0 || ch >= SFX_NUM_CHANNELS)
 		return -1;
 
 	int lumpnum = sfxinfo->lumpnum;
@@ -239,36 +278,54 @@ static int pcsound_start(sfxinfo_t *sfxinfo, int ch, int vol, int sep)
 		sfxinfo->lumpnum = lumpnum;
 	}
 	int lumplen = W_LumpLength(lumpnum);
-	if (lumplen <= 4)
+	if (lumplen <= 8)
 		return -1;
 
 	const uint8_t *data = (const uint8_t *)W_CacheLumpNum(lumpnum, PU_STATIC);
 	if (!data)
 		return -1;
 
-	uint16_t num_samples = (uint16_t)data[2] | ((uint16_t)data[3] << 8);
-	if ((int)num_samples + 4 > lumplen)
-		num_samples = (uint16_t)(lumplen - 4);
+	/* Doom DMX digital SFX header: [0..1]=format(3), [2..3]=rate, [4..7]=num_samples. */
+	uint16_t rate = (uint16_t)data[2] | ((uint16_t)data[3] << 8);
+	uint32_t num_samples = (uint32_t)data[4]
+	                     | ((uint32_t)data[5] << 8)
+	                     | ((uint32_t)data[6] << 16)
+	                     | ((uint32_t)data[7] << 24);
+	if (rate == 0)
+		rate = SFX_OUT_RATE;
 
-	s_sfx_samples = data + 4;
-	s_sfx_len = num_samples;
-	s_sfx_start_ms = sys_ticks_ms();
-	s_sfx_prio = sfxinfo->priority;
+	/* Skip 8-byte header + 16-byte DMX leading pad if lump is large enough. */
+	uint32_t data_off = 8;
+	if (num_samples > 32 && (int)(8 + num_samples) <= lumplen) {
+		data_off = 24;
+		num_samples -= 32;
+	} else if ((int)(8 + num_samples) > lumplen) {
+		num_samples = (uint32_t)(lumplen - 8);
+	}
+
+	if (vol < 0) vol = 0;
+	if (vol > 127) vol = 127;
+
+	s_ch[ch].samples = data + data_off;
+	s_ch[ch].len     = num_samples;
+	s_ch[ch].pos_fp  = 0;
+	s_ch[ch].step_fp = ((uint32_t)rate << 16) / SFX_OUT_RATE;
+	s_ch[ch].vol     = vol;
+	s_ch[ch].active  = (num_samples > 0);
 	return ch;
 }
 
 static void pcsound_stop(int ch)
 {
-	(void)ch;
-	s_sfx_samples = NULL;
-	s_sfx_prio = -1;
-	pcspk_set(0);
+	if (ch >= 0 && ch < SFX_NUM_CHANNELS)
+		s_ch[ch].active = false;
 }
 
 static bool pcsound_is_playing(int ch)
 {
-	(void)ch;
-	return s_sfx_samples != NULL;
+	if (ch < 0 || ch >= SFX_NUM_CHANNELS)
+		return false;
+	return s_ch[ch].active;
 }
 
 static void pcsound_cache(sfxinfo_t *sounds, int num)
@@ -276,10 +333,10 @@ static void pcsound_cache(sfxinfo_t *sounds, int num)
 	(void)sounds; (void)num;
 }
 
-static snddevice_t s_pcsound_devs[] = { SNDDEVICE_PCSPEAKER };
+static snddevice_t s_pcsound_devs[] = { SNDDEVICE_PCSPEAKER, SNDDEVICE_SB };
 sound_module_t sound_pcsound_module = {
 	s_pcsound_devs,
-	1,
+	2,
 	pcsound_init,
 	pcsound_shutdown,
 	pcsound_get_lump,
@@ -293,7 +350,8 @@ sound_module_t sound_pcsound_module = {
 
 void exit(int status)
 {
-	pcspk_set(0);
+	sys_audio_write(NULL, 0);
+	sys_pcspk(0);
 	sys_exit(status);
 }
 

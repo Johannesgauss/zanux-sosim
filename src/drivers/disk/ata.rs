@@ -1,4 +1,4 @@
-use crate::port::{inb, inw, outb, outw};
+use crate::port::{inb, outb};
 
 const ATA_PRIMARY_DATA: u16 = 0x1F0;
 const ATA_PRIMARY_SECCOUNT: u16 = 0x1F2;
@@ -63,10 +63,13 @@ pub extern "C" fn ata_read_sectors(lba: u32, count: u8, buf: *mut u8) -> bool {
             return false;
         }
         unsafe {
-            for w in 0..256usize {
-                core::ptr::write_unaligned(dst.add(w), inw(ATA_PRIMARY_DATA));
-            }
-            dst = dst.add(256);
+            core::arch::asm!(
+                "rep insw",
+                in("dx") ATA_PRIMARY_DATA,
+                inout("rdi") dst,
+                inout("rcx") 256usize => _,
+                options(nostack, preserves_flags)
+            );
         }
     }
     true
@@ -94,10 +97,13 @@ pub extern "C" fn ata_write_sectors(lba: u32, count: u8, buf: *const u8) -> bool
             return false;
         }
         unsafe {
-            for w in 0..256usize {
-                outw(ATA_PRIMARY_DATA, core::ptr::read_unaligned(src.add(w)));
-            }
-            src = src.add(256);
+            core::arch::asm!(
+                "rep outsw",
+                in("dx") ATA_PRIMARY_DATA,
+                inout("rsi") src,
+                inout("rcx") 256usize => _,
+                options(nostack, preserves_flags)
+            );
         }
     }
 

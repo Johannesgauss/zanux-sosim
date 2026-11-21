@@ -23,7 +23,5 @@ bool vmm_init();
 
 // TODO a better vmm_free
 void vmm_free(void *addr);
-extern uint64_t *g_pml4;
-
 
 #endif // ARCH_AMD64_VMM
