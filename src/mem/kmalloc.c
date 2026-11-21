@@ -81,8 +81,9 @@ virt_t usr_kmalloc(size_t size)
 		}
 		s_usr_page_base += (uintptr_t)i;
 		if (size % PAGE_SIZE == 0)
-			s_usr_page_base += PAGE_SIZE;
-		s_usr_page_offset = (virt_t) (size % PAGE_SIZE);
+			s_usr_page_offset = (virt_t)PAGE_SIZE;
+		else
+			s_usr_page_offset = (virt_t)(size % PAGE_SIZE);
 		return base_alloc;
 	}
 }
