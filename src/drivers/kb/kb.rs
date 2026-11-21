@@ -10,6 +10,7 @@ static mut RAW_HEAD: usize = 0;
 static mut RAW_TAIL: usize = 0;
 
 static mut SHIFT: bool = false;
+static mut CTRL: bool = false;
 static mut CAPS: bool = false;
 
 static SCAN_NORMAL: [u8; 128] = [
@@ -116,6 +117,10 @@ pub extern "C" fn kb_handler() {
         unsafe { SHIFT = false; }
         return;
     }
+    if scancode == 0x9D {
+        unsafe { CTRL = false; }
+        return;
+    }
     if scancode & 0x80 != 0 {
         return;
     }
@@ -124,8 +129,17 @@ pub extern "C" fn kb_handler() {
         unsafe { SHIFT = true; }
         return;
     }
+    if scancode == 0x1D {
+        unsafe { CTRL = true; }
+        return;
+    }
     if scancode == 0x3A {
         unsafe { CAPS = !CAPS; }
+        return;
+    }
+
+    if unsafe { CTRL } && scancode == 0x26 {
+        push_char(0x0C); // Ctrl+L
         return;
     }
 
