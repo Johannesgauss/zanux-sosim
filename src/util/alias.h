@@ -1,6 +1,7 @@
 #ifndef UTIL_ALIAS_H
 #define UTIL_ALIAS_H
 #include <stdint.h>
+#include <stddef.h>
 typedef int8_t byte;
 typedef uint8_t ubyte;
 

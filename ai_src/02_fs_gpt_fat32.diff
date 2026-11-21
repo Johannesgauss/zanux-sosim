@@ -1,0 +1,281 @@
+diff --git a/src/fs/fat32.h b/src/fs/fat32.h
+deleted file mode 100644
+index f12e644..0000000
+--- a/src/fs/fat32.h
++++ /dev/null
+@@ -1,38 +0,0 @@
+-#ifndef FS_FAT32_H
+-#define FS_FAT32_H
+-
+-#include "util/alias.h"
+-
+-#define FAT32_FILENAME_SIZE 11
+-struct fat32_dir_entry {
+-	uint8_t filename[11];
+-	uint8_t attr;
+-	uint8_t unused[8]; // first byte is 0xE5. Why so much random conventions?
+-	uint16_t cluster_high;
+-	uint8_t unused2[4];
+-	uint16_t cluster_low;
+-	uint32_t size;
+-} __attribute__((packed));
+-
+-typedef enum fat32_dir_entry_attr {
+-	FAT32_DIR_ENTRY_ATTR_READ_ONLY = 0,
+-	FAT32_DIR_ENTRY_ATTR_HIDDEN = 1,
+-	FAT32_DIR_ENTRY_ATTR_SYSTEM = 2,
+-	FAT32_DIR_ENTRY_ATTR_VOLUME_ID = 3,
+-	FAT32_DIR_ENTRY_ATTR_DIR = 4,
+-	FAT32_DIR_ENTRY_ATTR_ARCHIVE = 5,
+-} fat32_dir_entry_attr ;
+-
+-struct file {
+-	virt_t mptr;
+-	uint32_t start_cluster;
+-	size_t size;
+-};
+-
+-void fat32_init(uint64_t guid[2]);
+-struct file fat32_read_cluster(uint32_t cluster, size_t clusters_num);
+-void fat32_close_cluster(struct file file);
+-struct file fat32_read(struct fat32_dir_entry *root_dir, char filename[FAT32_FILENAME_SIZE]);
+-
+-#endif //FS_FAT32_H
+-
+diff --git a/src/fs/gpt.c b/src/fs/gpt.c
+deleted file mode 100644
+index e92e7bf..0000000
+--- a/src/fs/gpt.c
++++ /dev/null
+@@ -1,73 +0,0 @@
+-#include "drivers/disk/ata.h"
+-#include "util/panic.h"
+-#include "mem/kmalloc.h"
+-#include "util/memory.h"
+-#include "fs_macros.h"
+-
+-static struct gpt_protective_mbr {
+-	uint8_t boot_indicator;	
+-	uint8_t chs_start[3];
+-	uint8_t os_type;
+-	uint8_t chs_end[3];
+-	struct {
+-		uint32_t start_lba;
+-		uint32_t end_lba;
+-	} lba;
+-} __attribute__((packed)) s_gpt_protective_mbr;
+-
+-static struct gpt_partition_table_header {
+-	uint64_t signature;
+-	uint32_t gpt_revision;
+-	uint32_t header_size;
+-	uint32_t gpt_header_checksum; // "CRC32"
+-	uint32_t reserved;
+-	uint64_t my_lba; // UEFI docs call it this way, I was out of names, don't blame me (at least directly).
+-	uint64_t alternate_lba; // the backup one, at bottom
+-	uint64_t first_usable_lba;
+-	uint64_t last_usable_lba; 
+-	uint64_t guid[2];
+-	uint64_t partition_entry_lba;
+-	uint32_t partition_entries_num;
+-	uint32_t partition_entry_size;
+-	uint32_t partition_entry_checksum; // also "CRC32"
+-} __attribute__((packed)) *s_gpt_partition_table_header;
+-
+-struct gpt_partition_entry *gpt_table_get()
+-{
+-	uint8_t gpt_protective_mbr_buf[SECTOR_SIZE];
+-	if(!ata_read_sectors(0, 1, gpt_protective_mbr_buf))
+-	// TODO: bad practice
+-		panic("ATA DRIVER COULD NOT READ IT!");
+-	s_gpt_protective_mbr = *(struct gpt_protective_mbr*)(gpt_protective_mbr_buf + 446);
+-	// note: I'm using only GPT for now
+-	if (s_gpt_protective_mbr.os_type != 0xEE)
+-		panic("Only GPT, not MBR");
+-	s_gpt_partition_table_header = kmalloc(SECTOR_SIZE);
+-
+-	if(!ata_read_sectors(1, 1, (uint8_t*)s_gpt_partition_table_header))
+-		panic("ATA DRIVER COULD NOT READ IT!");
+-	uint32_t table_size = s_gpt_partition_table_header->partition_entry_size * s_gpt_partition_table_header->partition_entries_num;
+-	uint32_t table_sectors = (table_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
+-	struct gpt_partition_entry *gpt_pe_array = kmalloc(table_size);
+-
+-	if(!ata_read_sectors(s_gpt_partition_table_header->partition_entry_lba, table_sectors, (uint8_t*)gpt_pe_array))
+-		panic("ATA DRIVER COULD NOT READ IT!");
+-
+-	return gpt_pe_array;
+-}
+-
+-struct gpt_partition_entry gpt_partition_get(uint64_t guid[2])
+-{
+-	struct gpt_partition_entry *gpt_table = gpt_table_get();
+-	size_t gpt_index = 0;
+-	while (gpt_index < s_gpt_partition_table_header->partition_entries_num) {
+-		if (gpt_table[gpt_index].unique_partition_guid[0] == guid[0] && gpt_table[gpt_index].unique_partition_guid[1] == guid[1])
+-			goto FOUND;
+-		gpt_index++;
+-	} 
+-	panic("GPT PARTITION NOT FOUND.");
+-FOUND:;
+-      return gpt_table[gpt_index];
+-}
+-
+-
+diff --git a/src/fs/gpt.h b/src/fs/gpt.h
+deleted file mode 100644
+index c6793a5..0000000
+--- a/src/fs/gpt.h
++++ /dev/null
+@@ -1,19 +0,0 @@
+-#ifndef FS_GPT_H
+-#define FS_GPT_H
+-
+-#include "util/alias.h"
+-
+-struct gpt_partition_entry {
+-	uint64_t partition_type_guid[2]; // the type of the partition
+-	uint64_t unique_partition_guid[2]; // the guid of the partition
+-	uint64_t start_lba;
+-	uint64_t end_lba;
+-	uint64_t attr;
+-	uint8_t partition_name[72]; // why specifically 72 characters? It must have a historic reason, I see Linux git commits have the same limit.
+-} __attribute__((packed));
+-
+-struct gpt_partition_entry *gpt_table_get(void);
+-struct gpt_partition_entry gpt_partition_get(uint64_t guid[2]);
+-
+-
+-#endif //FS_GPT_H
+diff --git a/src/fs/fat.c b/src/fs/fat32.c
+index 6809ce0..4643818 100644
+--- a/src/fs/fat.c
++++ b/src/fs/fat32.c
+@@ -4,7 +4,6 @@
+ #include "util/memory.h"
+ #include "fs_macros.h"
+ #include "fat32.h"
+-#include "gpt.h"
+ 
+ struct fat_bpb {
+ 	uint8_t jmp[3];
+@@ -73,19 +72,18 @@ static uint32_t s_cached_sector_slice_fat_lba = 0xFFFFFFFF;
+ 
+ #define FAT32_TABLE_ENTRY_SIZE 4 //bytes
+ 
+-void fat32_init(uint64_t guid[2])
++bool fat32_init(uint64_t start_lba)
+ {
+-	struct gpt_partition_entry fat_partition = gpt_partition_get(guid);
++	if (!ata_read_sectors(start_lba, 1, (uint8_t*)&s_fat32_volume_id))
++		return false;
+ 
+-	if (!ata_read_sectors(fat_partition.start_lba, 1, (uint8_t*)&s_fat32_volume_id))
+-		panic("ATA FAILED TO READ FAT32 SECTOR.");
+-	
+ 	if (s_fat32_volume_id.bootable_partition_signature[0] != 0x55 || s_fat32_volume_id.bootable_partition_signature[1] != 0xAA)
+-		panic("FAT32: CORRUPTED SIGNATURE"); 
+-	s_fat_first_lba = fat_partition.start_lba + s_fat32_volume_id.bpb.reserved_sectors;
+-	s_data_start_cluster_lba = s_fat_first_lba + s_fat32_volume_id.bpb.fat_num * s_fat32_volume_id.sectors_per_fat;
++		return false;
+ 
++	s_fat_first_lba = start_lba + s_fat32_volume_id.bpb.reserved_sectors;
++	s_data_start_cluster_lba = s_fat_first_lba + s_fat32_volume_id.bpb.fat_num * s_fat32_volume_id.sectors_per_fat;
+ 	s_dir_entries_num = (s_fat32_volume_id.bpb.sectors_per_cluster * SECTOR_SIZE) / sizeof(struct fat32_dir_entry);
++	return true;
+ }
+ 
+ 
+@@ -95,7 +93,7 @@ static inline uint32_t cluster_to_lba(uint32_t cluster)
+ }
+ 
+ // read from cluster, TODO a better name for this function
+-struct file fat32_open_file(uint32_t cluster, size_t clusters_num)
++static inline struct file fat32_open_cluster_as_file(uint32_t cluster, size_t clusters_num)
+ {
+ 	struct file file;
+ 	file.start_cluster = cluster;
+@@ -108,15 +106,25 @@ struct file fat32_open_file(uint32_t cluster, size_t clusters_num)
+ 	return file;
+ }
+ 
+-void fat32_close_file(struct file file)
++struct fat32_dir_entry *fat32_open_dir(uint32_t cluster)
+ {
+-	kfree(file.mptr);
++	struct file dir_file = fat32_open_cluster_as_file(cluster, 1);
++	return (struct fat32_dir_entry *) dir_file.mptr;					
+ }
+ 
+-struct fat32_dir_entry *fat32_open_dir(uint32_t cluster)
++struct fat32_dir_entry *fat32_open_root_dir(void)
+ {
+-	struct file dir_file = fat32_open_file(cluster, 1);
+-	return (struct fat32_dir_entry *) dir_file.mptr;					
++	return fat32_open_dir(s_fat32_volume_id.root_cluster);
++}
++
++size_t fat32_dir_entries_count(void)
++{
++	return s_dir_entries_num;
++}
++
++void fat32_close_file(struct file file)
++{
++	kfree(file.mptr);
+ }
+ 
+ static inline uint32_t fat32_next_cluster(uint32_t cluster)
+@@ -132,7 +140,19 @@ static inline uint32_t fat32_next_cluster(uint32_t cluster)
+ }
+ 
+ 
+-struct file fat32_read(struct fat32_dir_entry *dir, char filename[FAT32_FILENAME_SIZE])
++int64_t fat32_file_size(struct fat32_dir_entry *dir, char filename[FAT32_FILENAME_SIZE])
++{
++	struct fat32_dir_entry *file_entry = dir;
++	for (size_t i = 0; i < s_dir_entries_num && file_entry->filename[0] != 0; i++, file_entry++) {
++		if (file_entry->filename[0] == 0xE5 || (file_entry->attr & FAT32_LFN_MARKER) == FAT32_LFN_MARKER)
++			continue;
++		if (!memcmp(file_entry->filename, filename, FAT32_FILENAME_SIZE))
++			return (int64_t)file_entry->size;
++	}
++	return -1;
++}
++
++struct file fat32_read_file(struct fat32_dir_entry *dir, char filename[FAT32_FILENAME_SIZE])
+ {
+ 	struct fat32_dir_entry *file_entry = dir;
+ 	for (size_t i = 0; i < s_dir_entries_num && file_entry->filename[0] != 0; i++, file_entry++)  {
+@@ -141,7 +161,7 @@ struct file fat32_read(struct fat32_dir_entry *dir, char filename[FAT32_FILENAME
+ 		if (!memcmp(file_entry->filename, filename, FAT32_FILENAME_SIZE))
+ 			goto FOUND;
+ 	}
+-	panic("FILE NOT FOUND!");
++	return (struct file){ .mptr = NULL, .start_cluster = 0, .size = 0 };
+ FOUND:;
+ 	uint32_t cluster = (file_entry->cluster_high << 0x10) + file_entry->cluster_low;
+ 
+@@ -163,11 +183,20 @@ FOUND:;
+ 	uint32_t current_cluster = file.start_cluster;
+ 
+ 	uint8_t *dst = (uint8_t*) file.mptr;
++	uint8_t spc = s_fat32_volume_id.bpb.sectors_per_cluster;
+ 	while (current_cluster >= 2 && current_cluster < FAT32_EOC) {
+-		if(!ata_read_sectors(cluster_to_lba(current_cluster), s_fat32_volume_id.bpb.sectors_per_cluster, dst))
++		uint32_t run_start = current_cluster;
++		uint32_t run_sectors = spc;
++		uint32_t next = fat32_next_cluster(current_cluster);
++		while (next == current_cluster + 1 && run_sectors + spc <= 128) {
++			current_cluster = next;
++			run_sectors += spc;
++			next = fat32_next_cluster(current_cluster);
++		}
++		if (!ata_read_sectors(cluster_to_lba(run_start), (uint8_t)run_sectors, dst))
+ 			panic("FILE COULD NOT BE READ");
+-		dst += CLUSTER_BYTES;
+-		current_cluster = fat32_next_cluster(current_cluster);
++		dst += (size_t)run_sectors * SECTOR_SIZE;
++		current_cluster = next;
+ 	}
+ 		
+ RETURN:;

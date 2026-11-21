@@ -70,5 +70,3 @@ struct gpt_partition_entry gpt_partition_get(uint64_t guid[2])
 FOUND:;
       return gpt_table[gpt_index];
 }
-
-

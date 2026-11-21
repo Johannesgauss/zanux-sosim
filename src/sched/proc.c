@@ -5,19 +5,9 @@
 #include "proc_util.h"
 //#include "drivers/gfx/print_text.h"
 
-static struct proc proc_inst_inline(state_t state, virt_t ptr, uint stack_size);
-static struct proc proc_create_inline(virt_t ptr, uint code_size, uint stack_size);
-static void proc_kill_inline(struct proc *proc);
-static void proc_exit_inline(int retvalue);
-static struct proc *proc_sched_inline(struct int_frame *hf);
-static void proc_suspend_inline(ushort id);
-static void proc_switch_inline(struct int_frame *intf, ushort id_next);
-
-void proc_kill(ushort id) { struct proc *proc = hash_table_id_search_inline(id); return proc_kill_inline(proc); }
-void proc_exit(int retvalue) { return proc_exit_inline(retvalue); }
-void proc_suspend(ushort id) { return proc_suspend_inline(id); }
-void proc_switch(struct int_frame *intf, ushort id_next) { return proc_switch_inline(intf, id_next); }
-struct proc proc_inst(state_t state, virt_t ptr, size_t stack_size) { return proc_inst_inline(state, ptr, stack_size); }
+struct proc *proc_hash_table[PROC_HASH_TABLE_SIZE] = {0};
+ushort id_count = 0;
+struct proc *current_proc = NULL;
 
 void proc_tmp_setup()
 {
@@ -25,8 +15,11 @@ void proc_tmp_setup()
 	proc_create(&fizz, 5000, 5000);
 }
 
-static inline struct proc proc_inst_inline(state_t state, virt_t ptr, uint stack_size)
+struct proc proc_inst(state_t state, virt_t ptr, size_t stack_size)
 {
+	(void)ptr;
+	(void)stack_size;
+
 	struct proc proc;
 
 	proc.id = id_count;
@@ -39,26 +32,31 @@ static inline struct proc proc_inst_inline(state_t state, virt_t ptr, uint stack
 	return proc;
 }
 
-
-static inline void proc_kill_inline(struct proc *proc)
+static void __proc_kill(struct proc *proc)
 {
 	proc->state = PROC_DEAD;
-	vfree(proc->stbase);
+	vfree(proc->stack_base);
 }
 
-static inline void proc_exit_inline(int retvalue)
+void proc_kill(ushort id)
+{
+	struct proc *proc = hash_table_id_search(id);
+	__proc_kill(proc);
+}
+
+void proc_exit(int retvalue)
 {
 	current_proc->retvalue = retvalue;
-	proc_kill_inline(current_proc);
+	__proc_kill(current_proc);
 }
 
-static inline void proc_suspend_inline(ushort id)
+void proc_suspend(ushort id)
 {
-	struct proc *proc = hash_table_id_search_inline(id);
+	struct proc *proc = hash_table_id_search(id);
 	proc->state = PROC_READY;
 }
 
-static inline void proc_switch_inline(struct int_frame *intf, ushort id_next)
+void proc_switch(struct int_frame *intf, ushort id_next)
 {
 	if (in_user_mode(intf)) {
 		current_proc->ctx.intf = *intf;
@@ -66,20 +64,19 @@ static inline void proc_switch_inline(struct int_frame *intf, ushort id_next)
 
 	current_proc->state = PROC_READY;
 
-	current_proc = hash_table_id_search_inline(id_next);
+	current_proc = hash_table_id_search(id_next);
 	current_proc->state = PROC_EXEC;
 }
 
 struct proc *proc_create(virt_t ptr, size_t code_size, size_t stack_size)
 {
-
 	struct proc *proc = kmalloc(sizeof(*proc));
-	*proc = proc_inst_inline(PROC_READY, ptr, stack_size);
+	*proc = proc_inst(PROC_READY, ptr, stack_size);
 
 	arch_proc_init(&proc->ctx);
 
-	proc->stbase = usr_kmalloc(stack_size);
-	proc->ctx.intf.hw.rsp = (virt_array)(((uintptr_t)proc->stbase + stack_size) & ~0xFULL);
+	proc->stack_base = usr_kmalloc(stack_size);
+	proc->ctx.intf.hw.rsp = (virt_array)(((uintptr_t)proc->stack_base + stack_size) & ~0xFULL);
 	proc->ctx.intf.hw.rflags = (1 << 9) | 0b10;
 	// Considering real programs, they will be loaded from storage, so this
 	// is just a dummy implementation anyway, so
@@ -88,7 +85,7 @@ struct proc *proc_create(virt_t ptr, size_t code_size, size_t stack_size)
 	proc->ctx.intf.hw.rip = usr_vmalloc(code_size);
 	memcpy(proc->ctx.intf.hw.rip, ptr, code_size);
 
-	// Add it into hash hash table
+	// Add it into hash table
 	hash_table_id_insert(proc);
 
 	return proc;
@@ -105,7 +102,6 @@ struct proc *proc_int(struct int_frame *intf)
 	}
 
 	struct proc *next = proc_sched();
-	
 
 	if (!next) {
 		while (1) {

@@ -30,11 +30,9 @@ struct file {
 };
 
 void fat32_init(uint64_t guid[2]);
-struct fat32_dir_entry *fat32_open_root_dir(void);
 struct fat32_dir_entry *fat32_open_dir(uint32_t cluster);
-void fat32_close_dir(struct fat32_dir_entry *dir);
-struct file fat32_read_file(struct fat32_dir_entry *dir, char filename[FAT32_FILENAME_SIZE]);
 void fat32_close_file(struct file file);
+struct file fat32_read_file(struct fat32_dir_entry *root_dir, char filename[FAT32_FILENAME_SIZE]);
 
 #endif //FS_FAT32_H
 

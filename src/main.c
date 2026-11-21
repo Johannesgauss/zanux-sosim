@@ -2,8 +2,8 @@
 #include "arch/gdt.h"
 #include "arch/int/idt.h"
 #include "drivers/clk/clk.h"
+#include "drivers/kb/kb.h"
 
-extern void kb_handler(void);
 extern void vmm_map(void *addr);
 extern void print_hex(uint64_t val);
 extern bool pmm_init();

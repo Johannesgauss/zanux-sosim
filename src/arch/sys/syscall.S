@@ -14,17 +14,19 @@ sys_exit:
 .extern syscall_table
 #define SYSCALL_NUMBER 2
 syscall_handler:
-	mov %rsp, %r12
+	mov %rsp, user_rps(%rip)
 	mov tss+4(%rip), %rsp
-	push %r12 // rsp
+	push user_rps(%rip)
 	push %r11 // rflags
 	push %rcx // rip
+	sub $8, %rsp
 
 	cmp $SYSCALL_NUMBER, %rax
 	jae INVALID_SYSCALL
 
 	call *syscall_table(,%rax, 8)
 
+	add $8, %rsp
 	pop %rcx
 	pop %r11
 	pop %rsp
@@ -34,3 +36,8 @@ INVALID_SYSCALL:
 	//call proc_crash
 	hlt
 	jmp INVALID_SYSCALL
+
+.section .bss
+.align 8
+user_rps:
+	.skip 8
