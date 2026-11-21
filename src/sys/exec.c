@@ -1,3 +1,4 @@
+#include "sys/exec.h"
 #include "util/alias.h"
 #include "util/memory.h"
 #include "fs/fat32.h"

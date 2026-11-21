@@ -137,7 +137,6 @@ void exception_handler(struct idt_stack_call *regs)
 	}
 }
 
-void proc_tmp_setup();
 void idt_handler(struct idt_stack_call *regs)
 {
 	uint64_t int_no = get_vector(regs);

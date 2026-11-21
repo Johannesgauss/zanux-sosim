@@ -1,19 +1,12 @@
 #include "mem/kmalloc.h"
 #include "util/alias.h"
 #include "proc.h"
-#include "test/test.h"
 #include "proc_util.h"
 //#include "drivers/gfx/print_text.h"
 
 struct proc *proc_hash_table[PROC_HASH_TABLE_SIZE] = {0};
 ushort id_count = 0;
 struct proc *current_proc = NULL;
-
-void proc_tmp_setup()
-{
-	current_proc = proc_create(&foo, 5000, 5000);
-	proc_create(&fizz, 5000, 5000);
-}
 
 struct proc proc_inst(state_t state, virt_t ptr, size_t stack_size)
 {
@@ -27,7 +20,7 @@ struct proc proc_inst(state_t state, virt_t ptr, size_t stack_size)
 
 	proc.state = state;
 
-	proc.ctx.intf.gp = (struct gp_regs) {0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+	arch_proc_zero_regs(&proc.ctx);
 
 	return proc;
 }
@@ -67,9 +60,7 @@ void proc_suspend(ushort id)
 
 void proc_switch(struct int_frame *intf, ushort id_next)
 {
-	if (in_user_mode(intf)) {
-		current_proc->ctx.intf = *intf;
-	}
+	arch_proc_save_user_ctx(&current_proc->ctx, intf);
 
 	current_proc->state = PROC_READY;
 
@@ -79,9 +70,7 @@ void proc_switch(struct int_frame *intf, ushort id_next)
 
 struct proc *proc_create(virt_t ptr, size_t code_size, size_t stack_size)
 {
-	virt_array saved_pml4 = g_pml4;
-	phy_t saved_cr3;
-	asm volatile ("mov %%cr3, %0;" : "=r"(saved_cr3));
+	phy_t saved_as = arch_addr_space_save();
 
 	struct proc *proc = kmalloc(sizeof(*proc));
 	*proc = proc_inst(PROC_READY, ptr, stack_size);
@@ -89,8 +78,6 @@ struct proc *proc_create(virt_t ptr, size_t code_size, size_t stack_size)
 	arch_proc_init(&proc->ctx);
 
 	proc->stack_base = usr_kmalloc(stack_size);
-	proc->ctx.intf.hw.rsp = (virt_array)(((uintptr_t)proc->stack_base + stack_size) & ~0xFULL);
-	proc->ctx.intf.hw.rflags = (1 << 9) | 0b10;
 	// Considering real programs, they will be loaded from storage, so this
 	// is just a dummy implementation anyway, so
 	// TODO! substitute this.
@@ -101,11 +88,10 @@ struct proc *proc_create(virt_t ptr, size_t code_size, size_t stack_size)
 	for (size_t off = 0; off < map_size; off += PAGE_SIZE) {
 		vmm_map((virt_t)(user_code_base + off));
 	}
-	proc->ctx.intf.hw.rip = (virt_t)user_code_base;
-	memcpy(proc->ctx.intf.hw.rip, ptr, code_size);
+	arch_proc_setup_frame(&proc->ctx, (virt_t)user_code_base, proc->stack_base, stack_size);
+	memcpy((virt_t)user_code_base, ptr, code_size);
 
-	g_pml4 = saved_pml4;
-	asm volatile ("mov %0, %%cr3;" :: "r"(saved_cr3) : "memory");
+	arch_addr_space_restore(saved_as);
 
 	// Add it into hash table
 	hash_table_id_insert(proc);
@@ -120,8 +106,7 @@ struct proc *proc_int(struct int_frame *intf)
 {
 	g_timer_ticks++;
 	// TODO: I don't think this is the best solution!
-	if (current_proc && in_user_mode(intf)) {
-		current_proc->ctx.intf = *intf;
+	if (current_proc && arch_proc_save_user_ctx(&current_proc->ctx, intf)) {
 		if (current_proc->state == PROC_EXEC)
 			current_proc->state = PROC_READY;
 	}
@@ -130,12 +115,12 @@ struct proc *proc_int(struct int_frame *intf)
 
 	if (!next) {
 		while (1) {
-			asm volatile ("hlt");
+			arch_halt();
 		}
 	}
 	next->state = PROC_EXEC;
 	current_proc = next;
-	g_pml4 = phy_to_virt(next->ctx.cr3);
+	arch_proc_sync_vmm(&next->ctx);
 
 	return current_proc;
 }

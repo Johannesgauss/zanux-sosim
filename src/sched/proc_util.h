@@ -2,7 +2,6 @@
 #include "mem/kmalloc.h"
 #include "util/alias.h"
 #include "proc.h"
-#include "test/test.h"
 #include "util/memory.h"
 
 // TODO: a better implementation

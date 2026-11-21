@@ -1,13 +1,8 @@
+#include "sys/io.h"
 #include "util/alias.h"
 #include "drivers/gfx/console.h"
 #include "drivers/kb/kb.h"
 #include "drivers/port.h"
-#include <stddef.h>
-#include <stdint.h>
-
-#define FD_STDIN  0
-#define FD_STDOUT 1
-#define FD_STDERR 2
 
 int64_t sys_write(int fd, const char *buf, size_t count)
 {
