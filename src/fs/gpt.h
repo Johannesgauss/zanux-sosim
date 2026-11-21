@@ -2,6 +2,7 @@
 #define FS_GPT_H
 
 #include "util/alias.h"
+#include <stdbool.h>
 
 struct gpt_partition_entry {
 	uint64_t partition_type_guid[2]; // the type of the partition
@@ -14,6 +15,8 @@ struct gpt_partition_entry {
 
 struct gpt_partition_entry *gpt_table_get(void);
 struct gpt_partition_entry gpt_partition_get(uint64_t guid[2]);
+bool gpt_parse_uuid(const char *uuid_str, uint64_t out[2]);
+struct gpt_partition_entry gpt_partition_from_cmdline(const char *cmdline);
 
 
 #endif //FS_GPT_H

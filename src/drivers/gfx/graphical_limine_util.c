@@ -27,6 +27,12 @@ volatile struct limine_module_request module_request = {
     .revision = 0
 };
 
+__attribute__((used, section(".limine_requests")))
+volatile struct limine_executable_cmdline_request cmdline_request = {
+    .id = LIMINE_EXECUTABLE_CMDLINE_REQUEST_ID,
+    .revision = 0
+};
+
 // Finally, define the start and end markers for the Limine requests.
 // These can also be moved anywhere, to any .c file, as seen fit.
 

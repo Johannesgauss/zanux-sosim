@@ -4,7 +4,6 @@
 #include "util/memory.h"
 #include "fs_macros.h"
 #include "fat32.h"
-#include "gpt.h"
 
 struct fat_bpb {
 	uint8_t jmp[3];
@@ -73,19 +72,18 @@ static uint32_t s_cached_sector_slice_fat_lba = 0xFFFFFFFF;
 
 #define FAT32_TABLE_ENTRY_SIZE 4 //bytes
 
-void fat32_init(uint64_t guid[2])
+bool fat32_init(uint64_t start_lba)
 {
-	struct gpt_partition_entry fat_partition = gpt_partition_get(guid);
+	if (!ata_read_sectors(start_lba, 1, (uint8_t*)&s_fat32_volume_id))
+		return false;
 
-	if (!ata_read_sectors(fat_partition.start_lba, 1, (uint8_t*)&s_fat32_volume_id))
-		panic("ATA FAILED TO READ FAT32 SECTOR.");
-	
 	if (s_fat32_volume_id.bootable_partition_signature[0] != 0x55 || s_fat32_volume_id.bootable_partition_signature[1] != 0xAA)
-		panic("FAT32: CORRUPTED SIGNATURE"); 
-	s_fat_first_lba = fat_partition.start_lba + s_fat32_volume_id.bpb.reserved_sectors;
-	s_data_start_cluster_lba = s_fat_first_lba + s_fat32_volume_id.bpb.fat_num * s_fat32_volume_id.sectors_per_fat;
+		return false;
 
+	s_fat_first_lba = start_lba + s_fat32_volume_id.bpb.reserved_sectors;
+	s_data_start_cluster_lba = s_fat_first_lba + s_fat32_volume_id.bpb.fat_num * s_fat32_volume_id.sectors_per_fat;
 	s_dir_entries_num = (s_fat32_volume_id.bpb.sectors_per_cluster * SECTOR_SIZE) / sizeof(struct fat32_dir_entry);
+	return true;
 }
 
 
@@ -114,6 +112,16 @@ struct fat32_dir_entry *fat32_open_dir(uint32_t cluster)
 	return (struct fat32_dir_entry *) dir_file.mptr;					
 }
 
+struct fat32_dir_entry *fat32_open_root_dir(void)
+{
+	return fat32_open_dir(s_fat32_volume_id.root_cluster);
+}
+
+size_t fat32_dir_entries_count(void)
+{
+	return s_dir_entries_num;
+}
+
 void fat32_close_file(struct file file)
 {
 	kfree(file.mptr);
@@ -132,6 +140,18 @@ static inline uint32_t fat32_next_cluster(uint32_t cluster)
 }
 
 
+int64_t fat32_file_size(struct fat32_dir_entry *dir, char filename[FAT32_FILENAME_SIZE])
+{
+	struct fat32_dir_entry *file_entry = dir;
+	for (size_t i = 0; i < s_dir_entries_num && file_entry->filename[0] != 0; i++, file_entry++) {
+		if (file_entry->filename[0] == 0xE5 || (file_entry->attr & FAT32_LFN_MARKER) == FAT32_LFN_MARKER)
+			continue;
+		if (!memcmp(file_entry->filename, filename, FAT32_FILENAME_SIZE))
+			return (int64_t)file_entry->size;
+	}
+	return -1;
+}
+
 struct file fat32_read_file(struct fat32_dir_entry *dir, char filename[FAT32_FILENAME_SIZE])
 {
 	struct fat32_dir_entry *file_entry = dir;
@@ -141,7 +161,7 @@ struct file fat32_read_file(struct fat32_dir_entry *dir, char filename[FAT32_FIL
 		if (!memcmp(file_entry->filename, filename, FAT32_FILENAME_SIZE))
 			goto FOUND;
 	}
-	panic("FILE NOT FOUND!");
+	return (struct file){ .mptr = NULL, .start_cluster = 0, .size = 0 };
 FOUND:;
 	uint32_t cluster = (file_entry->cluster_high << 0x10) + file_entry->cluster_low;
 
@@ -163,11 +183,20 @@ FOUND:;
 	uint32_t current_cluster = file.start_cluster;
 
 	uint8_t *dst = (uint8_t*) file.mptr;
+	uint8_t spc = s_fat32_volume_id.bpb.sectors_per_cluster;
 	while (current_cluster >= 2 && current_cluster < FAT32_EOC) {
-		if(!ata_read_sectors(cluster_to_lba(current_cluster), s_fat32_volume_id.bpb.sectors_per_cluster, dst))
+		uint32_t run_start = current_cluster;
+		uint32_t run_sectors = spc;
+		uint32_t next = fat32_next_cluster(current_cluster);
+		while (next == current_cluster + 1 && run_sectors + spc <= 128) {
+			current_cluster = next;
+			run_sectors += spc;
+			next = fat32_next_cluster(current_cluster);
+		}
+		if (!ata_read_sectors(cluster_to_lba(run_start), (uint8_t)run_sectors, dst))
 			panic("FILE COULD NOT BE READ");
-		dst += CLUSTER_BYTES;
-		current_cluster = fat32_next_cluster(current_cluster);
+		dst += (size_t)run_sectors * SECTOR_SIZE;
+		current_cluster = next;
 	}
 		
 RETURN:;

@@ -70,3 +70,69 @@ struct gpt_partition_entry gpt_partition_get(uint64_t guid[2])
 FOUND:;
       return gpt_table[gpt_index];
 }
+
+static int hex_nibble(char c)
+{
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+
+static bool parse_hex_byte(const char *s, uint8_t *out)
+{
+	int hi = hex_nibble(s[0]);
+	int lo = hex_nibble(s[1]);
+	if (hi < 0 || lo < 0)
+		return false;
+	*out = (uint8_t)((hi << 4) | lo);
+	return true;
+}
+
+bool gpt_parse_uuid(const char *uuid_str, uint64_t out[2])
+{
+	if (!uuid_str)
+		return false;
+
+	static const uint8_t char_offsets[16] = {
+		6, 4, 2, 0,
+		11, 9,
+		16, 14,
+		19, 21,
+		24, 26, 28, 30, 32, 34
+	};
+
+	if (uuid_str[8] != '-' || uuid_str[13] != '-' || uuid_str[18] != '-' || uuid_str[23] != '-')
+		return false;
+
+	uint8_t bytes[16];
+	for (size_t i = 0; i < 16; i++) {
+		if (!parse_hex_byte(uuid_str + char_offsets[i], &bytes[i]))
+			return false;
+	}
+
+	memcpy(out, bytes, 16);
+	return true;
+}
+
+struct gpt_partition_entry gpt_partition_from_cmdline(const char *cmdline)
+{
+	if (!cmdline)
+		panic("MISSING KERNEL CMDLINE");
+
+	static const char key[] = "root=PARTUUID=";
+	const size_t key_len = sizeof(key) - 1;
+
+	const char *p = cmdline;
+	while (*p) {
+		if (!memcmp(p, key, key_len)) {
+			uint64_t guid[2];
+			if (!gpt_parse_uuid(p + key_len, guid))
+				panic("INVALID root=PARTUUID IN CMDLINE");
+			return gpt_partition_get(guid);
+		}
+		p++;
+	}
+
+	panic("root=PARTUUID NOT FOUND IN CMDLINE");
+}
