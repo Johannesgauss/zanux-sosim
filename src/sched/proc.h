@@ -17,7 +17,7 @@ struct proc {
 	struct proc *next;
 	struct proc *prev;
 	struct arch_proc ctx;
-	virt_t stbase;
+	virt_t stack_base;
 	state_t state;
 	utiny id;
 	utiny retvalue;
