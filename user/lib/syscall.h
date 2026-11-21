@@ -16,6 +16,9 @@
 #define SYS_PCSPK         9
 #define SYS_OPL_IO        10
 #define SYS_READDIR       11
+#define SYS_SIM_START     12
+#define SYS_SIM_POLL      13
+#define SYS_AUDIO_WRITE   14
 
 static inline int64_t syscall0(uint64_t num)
 {
@@ -117,6 +120,21 @@ static inline void sys_opl_write(uint16_t port, uint8_t val)
 static inline int64_t sys_readdir(size_t index, char name_out[16], uint32_t *size_out)
 {
 	return syscall3(SYS_READDIR, (uint64_t)index, (uint64_t)name_out, (uint64_t)size_out);
+}
+
+static inline int64_t sys_sim_start(const void *cfg)
+{
+	return syscall1(SYS_SIM_START, (uint64_t)cfg);
+}
+
+static inline int64_t sys_sim_poll(void *out_trace)
+{
+	return syscall1(SYS_SIM_POLL, (uint64_t)out_trace);
+}
+
+static inline int64_t sys_audio_write(const uint8_t *pcm, size_t len)
+{
+	return syscall3(SYS_AUDIO_WRITE, (uint64_t)pcm, (uint64_t)len, 0);
 }
 
 #endif // USER_LIB_SYSCALL_H

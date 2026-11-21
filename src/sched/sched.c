@@ -1,4 +1,5 @@
 #include "sched/proc.h"
+#include "sched/sim_engine.h"
 #include "proc_util.h"
 
 #define SCHED_MAX_PROCS 64
@@ -6,6 +7,9 @@
 // struct proc *current_proc = the current process
 struct proc *proc_sched()
 {
+	if (sim_engine_is_active())
+		return sim_engine_tick();
+
 	if (!current_proc)
 		return hash_table_id_search(0);
 

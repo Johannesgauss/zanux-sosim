@@ -21,6 +21,7 @@ struct proc proc_inst(state_t state, virt_t ptr, size_t stack_size)
 	proc.state = state;
 
 	arch_proc_zero_regs(&proc.ctx);
+	arch_proc_init_fpu(&proc.ctx);
 
 	return proc;
 }
@@ -38,10 +39,12 @@ void proc_kill(ushort id)
 }
 
 extern void kb_drain(void);
+extern void sim_engine_on_proc_exit(struct proc *proc);
 
 void proc_exit(int retvalue)
 {
 	current_proc->retvalue = retvalue;
+	sim_engine_on_proc_exit(current_proc);
 	__proc_kill(current_proc);
 	struct proc *shell = hash_table_id_search(0);
 	if (shell && shell != current_proc && shell->state == PROC_BLOCK) {
@@ -68,12 +71,13 @@ void proc_switch(struct int_frame *intf, ushort id_next)
 	current_proc->state = PROC_EXEC;
 }
 
-struct proc *proc_create(virt_t ptr, size_t code_size, size_t stack_size)
+struct proc *proc_create_sized(virt_t ptr, size_t code_size, size_t bss_size, size_t stack_size)
 {
 	phy_t saved_as = arch_addr_space_save();
 
 	struct proc *proc = kmalloc(sizeof(*proc));
 	*proc = proc_inst(PROC_READY, ptr, stack_size);
+	arch_proc_init_fpu(&proc->ctx);
 
 	arch_proc_init(&proc->ctx);
 
@@ -82,9 +86,9 @@ struct proc *proc_create(virt_t ptr, size_t code_size, size_t stack_size)
 	// is just a dummy implementation anyway, so
 	// TODO! substitute this.
 	// Map flat binary at fixed USER_CODE_BASE (0x400000) in this process's cr3,
-	// plus 8 MiB of zero-initialized pages for .bss.
+	// plus `bss_size` bytes of zero-initialized pages for .bss.
 	const uintptr_t user_code_base = 0x0000000000400000ULL;
-	size_t map_size = code_size + (8 * 1024 * 1024);
+	size_t map_size = code_size + bss_size;
 	for (size_t off = 0; off < map_size; off += PAGE_SIZE) {
 		vmm_map((virt_t)(user_code_base + off));
 	}
@@ -99,12 +103,18 @@ struct proc *proc_create(virt_t ptr, size_t code_size, size_t stack_size)
 	return proc;
 }
 
+struct proc *proc_create(virt_t ptr, size_t code_size, size_t stack_size)
+{
+	return proc_create_sized(ptr, code_size, 8 * 1024 * 1024, stack_size);
+}
+
 volatile uint64_t g_timer_ticks = 0;
 
 extern struct proc *proc_sched();
 struct proc *proc_int(struct int_frame *intf)
 {
 	g_timer_ticks++;
+	struct proc *prev = current_proc;
 	// TODO: I don't think this is the best solution!
 	if (current_proc && arch_proc_save_user_ctx(&current_proc->ctx, intf)) {
 		if (current_proc->state == PROC_EXEC)
@@ -118,9 +128,13 @@ struct proc *proc_int(struct int_frame *intf)
 			arch_halt();
 		}
 	}
+	if (prev != next) {
+		if (prev)
+			arch_proc_save_fpu(&prev->ctx);
+		arch_proc_restore_fpu(&next->ctx);
+	}
 	next->state = PROC_EXEC;
 	current_proc = next;
-	arch_proc_sync_vmm(&next->ctx);
 
 	return current_proc;
 }

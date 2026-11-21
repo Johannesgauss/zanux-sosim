@@ -17,4 +17,7 @@ const sys_call_t syscall_table[SYSCALL_NUMBER] = {
 	[SYS_PCSPK]         = (sys_call_t)sys_pcspk,
 	[SYS_OPL_IO]        = (sys_call_t)sys_opl_io,
 	[SYS_READDIR]       = (sys_call_t)sys_readdir,
+	[SYS_SIM_START]     = (sys_call_t)sys_sim_start,
+	[SYS_SIM_POLL]      = (sys_call_t)sys_sim_poll,
+	[SYS_AUDIO_WRITE]   = (sys_call_t)sys_audio_write,
 };

@@ -4,6 +4,7 @@
 #include "util/alias.h"
 #include "arch/int/idt.h"
 #include "arch/int/arch_proc.h"
+#include "sim.h"
 #include <stddef.h>
 
 typedef enum {
@@ -17,6 +18,7 @@ struct proc {
 	struct proc *next;
 	struct proc *prev;
 	struct arch_proc ctx;
+	struct task sched;
 	virt_t stack_base;
 	state_t state;
 	utiny id;
@@ -24,6 +26,7 @@ struct proc {
 };
 
 struct proc proc_inst(state_t state, virt_t ptr, size_t stack_size);
+struct proc *proc_create_sized(virt_t ptr, size_t code_size, size_t bss_size, size_t stack_size);
 struct proc *proc_create(virt_t ptr, size_t code_size, size_t stack_size);
 
 void proc_kill(ushort id);

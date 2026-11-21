@@ -21,9 +21,12 @@
 #define SYS_PCSPK         9
 #define SYS_OPL_IO        10
 #define SYS_READDIR       11
+#define SYS_SIM_START     12
+#define SYS_SIM_POLL      13
+#define SYS_AUDIO_WRITE   14
 
 /** Total number of registered system calls in `syscall_table`. */
-#define SYSCALL_NUMBER 12
+#define SYSCALL_NUMBER 15
 
 /** Generic 6-argument syscall handler function pointer type. */
 typedef int64_t (*sys_call_t)(umax, umax, umax, umax, umax, umax);

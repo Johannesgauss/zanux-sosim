@@ -108,4 +108,37 @@ int64_t sys_opl_io(uint16_t port, uint8_t val, int is_write);
  */
 int64_t sys_readdir(size_t index, char name_out[16], uint32_t *size_out);
 
+/**
+ * @brief Start a real Ring 3 scheduling simulation (`SYS_SIM_START`, syscall 12).
+ *
+ * Spawns/reuses Ring 3 `WORKER.BIN` processes and arms the kernel IRQ0 scheduler
+ * to run the requested policy in @p cfg. The caller should poll @ref sys_sim_poll()
+ * until it returns `1`.
+ *
+ * @param cfg Pointer to a `struct sim_config` in caller address space.
+ * @return `0` on success, `-1` on invalid config, unknown policy, or busy engine.
+ */
+int64_t sys_sim_start(const void *cfg);
+
+/**
+ * @brief Poll the active kernel scheduling simulation (`SYS_SIM_POLL`, syscall 13).
+ *
+ * @param out_trace Pointer to a `struct sim_trace` in caller address space.
+ * @return `1` if finished and @p out_trace was populated, `0` if still running,
+ *         or `-1` if no simulation is active or @p out_trace is NULL.
+ */
+int64_t sys_sim_poll(void *out_trace);
+
+/**
+ * @brief Queue unsigned 8-bit 11025 Hz mono PCM audio samples (`SYS_AUDIO_WRITE`, syscall 14).
+ *
+ * Feeds the Sound Blaster 16 DMA ring buffer (lazily initialized on first call).
+ * Passing `pcm == NULL` silences the buffer.
+ *
+ * @param pcm Pointer to unsigned 8-bit PCM samples (`0x80` = silence), or NULL to silence.
+ * @param len Number of sample bytes to write.
+ * @return Number of bytes written (>= 0), or -1 if no SB16 hardware is present.
+ */
+int64_t sys_audio_write(const uint8_t *pcm, size_t len);
+
 #endif // SYS_EXEC_H

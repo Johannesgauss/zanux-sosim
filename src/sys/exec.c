@@ -109,11 +109,14 @@ int64_t sys_fb_blit(const uint32_t *buf, uint32_t w, uint32_t h)
 		s_last_h = h;
 	}
 
+	static uint32_t s_row_buf[4096];
 	uint32_t sx = fb_w / w;
 	uint32_t sy = fb_h / h;
 	uint32_t scale = (sx < sy) ? sx : sy;
 	if (scale < 1)
 		scale = 1;
+	while (scale > 1 && w * scale > 4096)
+		scale--;
 
 	uint32_t out_w = w * scale;
 	uint32_t out_h = h * scale;
@@ -127,10 +130,6 @@ int64_t sys_fb_blit(const uint32_t *buf, uint32_t w, uint32_t h)
 			memcpy(dst + (oy + y) * pitch_px + ox, buf + y * w, copy_w * sizeof(uint32_t));
 		return 0;
 	}
-
-	static uint32_t s_row_buf[2048];
-	if (out_w > 2048)
-		out_w = 2048;
 
 	for (uint32_t y = 0; y < h; y++) {
 		const uint32_t *src_row = buf + y * w;
@@ -245,4 +244,27 @@ int64_t sys_readdir(size_t index, char name_out[16], uint32_t *size_out)
 
 	kfree(root);
 	return 0;
+}
+
+#include "sched/sim_engine.h"
+
+int64_t sys_sim_start(const void *cfg)
+{
+	return sim_engine_start((const struct sim *)cfg, current_proc);
+}
+
+int64_t sys_sim_poll(void *out_trace)
+{
+	return sim_engine_poll((struct sim *)out_trace);
+}
+
+#include "drivers/audio/sb16.h"
+
+int64_t sys_audio_write(const uint8_t *pcm, size_t len)
+{
+	if (!pcm) {
+		sb16_silence();
+		return 0;
+	}
+	return sb16_write_pcm(pcm, len);
 }
