@@ -5,7 +5,11 @@
 .DELETE_ON_ERROR:
 
 # Default user QEMU flags. These are appended to the QEMU command calls.
-QEMUFLAGS := -m 2G
+QEMUFLAGS := -m 2G -enable-kvm -cpu host \
+    -audiodev pa,id=snd0 \
+    -machine q35,pcspk-audiodev=snd0 \
+    -device adlib,audiodev=snd0 \
+    -device sb16,audiodev=snd0
 
 # Internal QEMU flags that should not be changed by the user.
 override QEMU_MACHINE_FLAGS := \
@@ -281,8 +285,13 @@ override ASFILES := $(filter %.S,$(SRCFILES))
 override NASMFILES := $(filter %.asm,$(SRCFILES))
 override RSFILES := $(filter %.rs,$(SRCFILES))
 override RSOBJ := $(if $(wildcard src/lib.rs),obj/src/lib.rs.o,)
-override OBJ := $(addprefix obj/,$(CFILES:.c=.c.o) $(ASFILES:.S=.S.o) $(NASMFILES:.asm=.asm.o)) $(RSOBJ)
-override HEADER_DEPS := $(addprefix obj/,$(CFILES:.c=.c.d) $(ASFILES:.S=.S.d) $(NASMFILES:.asm=.asm.d))
+
+DOOM_DIR := $(HOME)/doom_port
+DOOM_CFILES := $(wildcard $(DOOM_DIR)/src_doom/*.c)
+DOOM_OBJ := $(patsubst $(DOOM_DIR)/src_doom/%.c,obj/doom/%.c.o,$(DOOM_CFILES))
+
+override OBJ := $(addprefix obj/,$(CFILES:.c=.c.o) $(ASFILES:.S=.S.o) $(NASMFILES:.asm=.asm.o)) $(RSOBJ) $(DOOM_OBJ)
+override HEADER_DEPS := $(addprefix obj/,$(CFILES:.c=.c.d) $(ASFILES:.S=.S.d) $(NASMFILES:.asm=.asm.d)) $(DOOM_OBJ:.o=.d)
 
 # Link rules for the final kernel executable.
 bin/$(OUTPUT): GNUmakefile boot/linker-scripts/x86_64.lds $(OBJ)
@@ -297,6 +306,10 @@ obj/src/util/memory.c.o: override CFLAGS += -fno-lto
 obj/%.c.o: %.c GNUmakefile
 	mkdir -p "$(dir $@)"
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+
+obj/doom/%.c.o: $(DOOM_DIR)/src_doom/%.c GNUmakefile
+	mkdir -p "$(dir $@)"
+	$(CC) $(CFLAGS) -O3 -funroll-loops -Wno-padded -Wno-unused-parameter -Wno-sign-compare -Wno-missing-field-initializers -I $(DOOM_DIR)/src_doom/libc -I $(DOOM_DIR)/src_doom $(CPPFLAGS) -c $< -o $@
 
 # Compilation rules for *.S files.
 obj/%.S.o: %.S GNUmakefile
@@ -317,6 +330,7 @@ $(IMAGE_NAME).iso: boot/limine-binary/limine bin/$(OUTPUT)
 	rm -rf iso_root
 	mkdir -p iso_root/boot
 	cp bin/$(OUTPUT) iso_root/boot/
+	if [ -f "$(DOOM_DIR)/doom1.wad" ]; then cp "$(DOOM_DIR)/doom1.wad" iso_root/boot/doom1.wad; fi
 	mkdir -p iso_root/boot/limine
 	cp boot/limine.conf boot/limine-binary/limine-bios.sys boot/limine-binary/limine-bios-cd.bin boot/limine-binary/limine-uefi-cd.bin iso_root/boot/limine/
 	mkdir -p iso_root/EFI/BOOT
@@ -343,9 +357,27 @@ $(IMAGE_NAME).hdd: boot/limine-binary/limine bin/$(OUTPUT)
 	mcopy -i $(IMAGE_NAME).hdd@@$(HDD_PART_OFFSET) boot/limine-binary/BOOTX64.EFI ::/EFI/BOOT
 	mcopy -i $(IMAGE_NAME).hdd@@$(HDD_PART_OFFSET) boot/limine-binary/BOOTIA32.EFI ::/EFI/BOOT
 
+# Pure-GPT FAT32 data disk image (for testing FAT32 + ATA PIO)
+DISK_IMG := disk.img
+DISK_SIZE := 32
+DISK_PART_START := 2048
+DISK_PART_OFFSET := 1048576
+DISK_PART_UUID := 11223344-5566-7788-99AA-BBCCDDEEFF00
+DISK_FILES :=
+
+$(DISK_IMG):
+	rm -f $(DISK_IMG)
+	dd if=/dev/zero of=$(DISK_IMG) bs=1M count=$(DISK_SIZE)
+	printf 'label: gpt\nstart=$(DISK_PART_START), type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, uuid=$(DISK_PART_UUID)\n' | sfdisk $(DISK_IMG)
+	mformat -i $(DISK_IMG)@@$(DISK_PART_OFFSET) -F ::
+	printf 'Hello from FAT32!\n' | mcopy -i $(DISK_IMG)@@$(DISK_PART_OFFSET) - ::/HELLO.TXT
+	@for f in $(DISK_FILES); do \
+		mcopy -i $(DISK_IMG)@@$(DISK_PART_OFFSET) "$$f" ::/ ; \
+	done
+
 .PHONY: clean
 clean:
-	rm -rf bin obj boot/bin boot/obj iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd
+	rm -rf bin obj boot/bin boot/obj iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd $(DISK_IMG)
 
 .PHONY: distclean
 distclean: clean
