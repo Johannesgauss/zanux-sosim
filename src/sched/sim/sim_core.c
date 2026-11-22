@@ -163,8 +163,6 @@ bool sim_step(struct sim *s, int *active_task)
 
 	if (t->burst > 0)
 		t->remaining--;
-	else
-		t->burst++; /* Self-terminating process (`burst == 0`): count actual ticks. */
 
 	t->slice_used++;
 	uint32_t prio = (t->priority > 0) ? t->priority : 1;
@@ -201,6 +199,15 @@ void sim_notify_exit(struct sim *s, uint32_t idx)
 	t->finish = s->now;
 	if (t->start == 0xFFFFFFFFU)
 		t->start = s->now;
+	if (t->burst == 0) {
+		uint32_t ran = 0;
+		uint32_t lim = (s->now < SIM_MAX_TICKS) ? s->now : SIM_MAX_TICKS;
+		for (uint32_t k = 0; k < lim; k++) {
+			if (s->tl_task[k] == (int8_t)idx)
+				ran++;
+		}
+		t->burst = ran;
+	}
 	t->turnaround = (t->finish >= t->arrival) ? (t->finish - t->arrival) : 0;
 	t->wait = (t->turnaround >= t->burst) ? (t->turnaround - t->burst) : 0;
 	t->ok = (t->finish <= t->deadline) ? 1U : 0U;

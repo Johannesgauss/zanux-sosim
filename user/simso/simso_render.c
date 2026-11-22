@@ -1,5 +1,5 @@
 #include "sim.h"
-#include "drivers/gfx/font8x8.h"
+extern char font8x8_basic[128][8]; /* Provided by user/libc/zgfx.c */
 
 static const char *s_alg_names[ALG_COUNT] = {
 	"FCFS", "SJF", "RR", "PRIO", "EDF", "CFS", "AUTORAL"
@@ -77,11 +77,13 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 	fill_rect(fb, w, h, w - 104, 20, 14, 12, COL_MISS);
 	fill_rect(fb, w, h, w - 76,  20, 14, 12, COL_DEADLINE);
 
-	uint32_t total = s->total_ticks;
-	if (total == 0) return;
+	uint32_t total = (s->total_ticks > 0) ? s->total_ticks : s->now;
+	if (total == 0) total = 1;
+	uint32_t scale_ticks = (s->total_ticks > 0) ? s->total_ticks : ((total < 20U) ? 20U : total);
 	if (vis > total) vis = total;
 
-	uint32_t gx = 48, gy = 56, gw = (w > 64) ? (w - 64) : w, gh = 220;
+	/* Reserve y=46..136 for live Ring 3 process windows; place Gantt at y=142..294. */
+	uint32_t gx = 48, gy = 142, gw = (w > 64) ? (w - 64) : w, gh = 152;
 	fill_rect(fb, w, h, gx, gy, gw, gh, COL_PANEL);
 
 	uint32_t rows = s->n + 1;
@@ -90,8 +92,8 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 		if (gy + r * row_h < gy + gh)
 			fill_rect(fb, w, h, gx, gy + r * row_h, gw, 1, COL_GRID);
 
-	uint32_t tick_w = (gw / total >= 2) ? (gw / total) : 2;
-	for (uint32_t t = 0; t <= total; t++)
+	uint32_t tick_w = (gw / scale_ticks >= 2) ? (gw / scale_ticks) : 2;
+	for (uint32_t t = 0; t <= scale_ticks; t++)
 		if (gx + t * tick_w < gx + gw)
 			draw_vline(fb, w, h, gx + t * tick_w, gy, gy + gh, COL_GRID);
 
@@ -133,12 +135,12 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 	draw_text(fb, w, h, 16, gy + s->n * row_h + (row_h > 8 ? (row_h - 8) / 2 : 0), "OV", COL_OVERHEAD);
 
 	/* Bottom panel header (UI teammate expands table + averages here). */
-	uint32_t by = gy + gh + 16;
-	fill_rect(fb, w, h, 16, by, w - 32, h - (by + 12), COL_PANEL);
+	uint32_t by = gy + gh + 10;
+	fill_rect(fb, w, h, 16, by, w - 32, h - (by + 8), COL_PANEL);
 	draw_text(fb, w, h, 24,  by + 8, "ALG:", COL_TEXT);
 	draw_text(fb, w, h, 64,  by + 8, (s->alg < ALG_COUNT) ? s_alg_names[s->alg] : "?", COL_EXEC);
 	draw_text(fb, w, h, 140, by + 8, "TICKS:", COL_TEXT);
-	draw_uint(fb, w, h, 196, by + 8, s->total_ticks, COL_TEXT);
+	draw_uint(fb, w, h, 196, by + 8, (s->total_ticks > 0) ? s->total_ticks : s->now, COL_TEXT);
 	draw_text(fb, w, h, 244, by + 8, "CTXSW:", COL_TEXT);
 	draw_uint(fb, w, h, 300, by + 8, s->ctx_switches, COL_OVERHEAD);
 	draw_text(fb, w, h, 348, by + 8, "Q:", COL_TEXT);

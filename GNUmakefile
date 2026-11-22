@@ -371,9 +371,11 @@ DISK_PART_OFFSET := 1048576
 DISK_PART_UUID := 11223344-5566-7788-99AA-BBCCDDEEFF00
 DISK_FILES :=
 
-$(DISK_IMG):
+$(DISK_IMG): user/shell/shell.c user/worker/worker.S user/simso/simso.c user/simso/simso_render.c user/simso/simso_json.c $(wildcard user/apps/*.c) $(wildcard casos/*.json)
+	$(MAKE) -C user/libc
 	$(MAKE) -C user/shell
 	$(MAKE) -C user/worker
+	$(MAKE) -C user/apps
 	$(MAKE) -C user/simso
 	rm -f $(DISK_IMG)
 	dd if=/dev/zero of=$(DISK_IMG) bs=1M count=$(DISK_SIZE)
@@ -382,7 +384,12 @@ $(DISK_IMG):
 	printf 'Hello from FAT32!\n' | mcopy -i $(DISK_IMG)@@$(DISK_PART_OFFSET) - ::/HELLO.TXT
 	mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/shell/SHELL.BIN ::/
 	mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/worker/WORKER.BIN ::/
+	mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/apps/SORT.BIN ::/
+	mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/apps/LIFE.BIN ::/
+	mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/apps/PLASMA.BIN ::/
 	mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/simso/SIMSO.BIN ::/
+	if [ -f "casos/caso1.json" ]; then mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) casos/caso1.json ::/CASO1.JSN; fi
+	if [ -f "casos/caso2.json" ]; then mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) casos/caso2.json ::/CASO2.JSN; fi
 	if [ -f "user/doom/DOOM.BIN" ]; then mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/doom/DOOM.BIN ::/; fi
 	if [ -f "$(DOOM_DIR)/doom1.wad" ]; then mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) "$(DOOM_DIR)/doom1.wad" ::/DOOM1.WAD; fi
 	@for f in $(DISK_FILES); do \

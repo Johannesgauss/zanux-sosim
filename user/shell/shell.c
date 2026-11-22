@@ -137,7 +137,7 @@ int shell_main(void)
 {
 	char line[128];
 
-	puts_stdout("\nZanux Mini-Shell (type 'help' or 'doom')\n");
+	puts_stdout("\nZanux Mini-Shell (type 'help', 'simso', or 'doom')\n");
 
 	for (;;) {
 		puts_stdout("zanux> ");
@@ -147,20 +147,37 @@ int shell_main(void)
 
 		if (str_cmp(line, "help") == 0) {
 			puts_stdout("Commands:\n");
-			puts_stdout("  help        - show this message\n");
-			puts_stdout("  ls          - list files on disk\n");
-			puts_stdout("  cat <file>  - print file contents\n");
-			puts_stdout("  clear       - clear screen (or Ctrl+L)\n");
-			puts_stdout("  doom        - run DOOM.BIN\n");
-			puts_stdout("  echo <msg>  - print text\n");
-			puts_stdout("  run <file>  - spawn a binary from disk\n");
-			puts_stdout("  exit        - exit shell\n");
+			puts_stdout("  help         - show this message\n");
+			puts_stdout("  ls           - list files on disk\n");
+			puts_stdout("  cat <file>   - print file contents\n");
+			puts_stdout("  clear        - clear screen (or Ctrl+L)\n");
+			puts_stdout("  simso [args] - run scheduler simulator (--alg --input --seed --delay)\n");
+			puts_stdout("  doom         - run DOOM.BIN\n");
+			puts_stdout("  echo <msg>   - print text\n");
+			puts_stdout("  run <file>   - spawn a binary from disk\n");
+			puts_stdout("  exit         - exit shell\n");
 		} else if (str_cmp(line, "ls") == 0) {
 			cmd_ls();
 		} else if (str_cmp(line, "clear") == 0) {
 			cmd_clear();
 		} else if (str_ncmp(line, "cat ", 4) == 0) {
 			cmd_cat(line + 4);
+		} else if (str_cmp(line, "simso") == 0 || str_ncmp(line, "simso ", 6) == 0) {
+			char cmd[160];
+			const char *prefix = "SIMSO.BIN";
+			size_t pos = 0;
+			while (prefix[pos]) {
+				cmd[pos] = prefix[pos];
+				pos++;
+			}
+			if (line[5] == ' ') {
+				size_t i = 5;
+				while (line[i] && pos + 1 < sizeof(cmd))
+					cmd[pos++] = line[i++];
+			}
+			cmd[pos] = '\0';
+			if (sys_exec(cmd) < 0)
+				puts_stdout("Failed to launch SIMSO.BIN.\n");
 		} else if (str_cmp(line, "doom") == 0) {
 			puts_stdout("Launching DOOM.BIN...\n");
 			if (sys_exec("DOOM.BIN") < 0)

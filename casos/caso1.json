@@ -1,0 +1,11 @@
+{
+  "quantum": 2,
+  "sobrecarga_contexto": 1,
+  "custo_disco": 3,
+  "seed": 42,
+  "processos": [
+    {"id": "P1", "bin_name": "SORT.BIN",   "chegada": 0, "execucao": 5, "deadline": 8,  "prioridade": 2, "num_paginas": 6},
+    {"id": "P2", "bin_name": "LIFE.BIN",   "chegada": 1, "execucao": 4, "deadline": 12, "prioridade": 1, "num_paginas": 4},
+    {"id": "P3", "bin_name": "PLASMA.BIN", "chegada": 3, "execucao": 2, "deadline": 20, "prioridade": 3, "num_paginas": 3}
+  ]
+}

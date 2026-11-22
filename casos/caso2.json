@@ -1,0 +1,10 @@
+{
+  "quantum": 2,
+  "sobrecarga_contexto": 1,
+  "custo_disco": 3,
+  "seed": 42,
+  "processos": [
+    {"id": "P1", "chegada": 0, "execucao": 3, "deadline": 5,  "prioridade": 1, "num_paginas": 2},
+    {"id": "P2", "chegada": 7, "execucao": 3, "deadline": 12, "prioridade": 2, "num_paginas": 2}
+  ]
+}
