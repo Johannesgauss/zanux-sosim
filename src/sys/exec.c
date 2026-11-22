@@ -12,6 +12,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+static char s_exec_args[256] = {0};
+
 static bool to_fat83(const char *in, char out[FAT32_FILENAME_SIZE])
 {
 	memset(out, ' ', FAT32_FILENAME_SIZE);
@@ -26,6 +28,17 @@ static bool to_fat83(const char *in, char out[FAT32_FILENAME_SIZE])
 		return false;
 	if (*in == '.') {
 		in++;
+		/* Map 4-char ".json"/".JSON" cleanly to FAT32 8.3 "JSN". */
+		if ((in[0] == 'j' || in[0] == 'J') &&
+		    (in[1] == 's' || in[1] == 'S') &&
+		    (in[2] == 'o' || in[2] == 'O') &&
+		    (in[3] == 'n' || in[3] == 'N') &&
+		    in[4] == '\0') {
+			out[8] = 'J';
+			out[9] = 'S';
+			out[10] = 'N';
+			return true;
+		}
 		size_t j = 0;
 		while (*in && j < 3) {
 			char c = *in++;
@@ -42,14 +55,35 @@ int64_t sys_exec(const char *name)
 	if (!name || !name[0])
 		return -1;
 
+	/* Split "<BINARY> [args...]" so Ring 3 apps can read CLI flags via sys_get_args(). */
+	char bin[32];
+	size_t blen = 0;
+	while (name[blen] && name[blen] != ' ' && name[blen] != '\t' && blen + 1 < sizeof(bin)) {
+		bin[blen] = name[blen];
+		blen++;
+	}
+	bin[blen] = '\0';
+
+	const char *args = name + blen;
+	while (*args == ' ' || *args == '\t')
+		args++;
+
 	char name83[FAT32_FILENAME_SIZE];
-	if (!to_fat83(name, name83))
+	if (!to_fat83(bin, name83))
 		return -1;
 
 	struct fat32_dir_entry *root = fat32_open_root_dir();
 	struct file f = fat32_read_file(root, name83);
+	kfree(root);
 	if (!f.mptr || f.size == 0)
 		return -1;
+
+	size_t alen = 0;
+	while (args[alen] && alen + 1 < sizeof(s_exec_args)) {
+		s_exec_args[alen] = args[alen];
+		alen++;
+	}
+	s_exec_args[alen] = '\0';
 
 	struct proc *p = proc_create(f.mptr, f.size, 65536);
 	fat32_close_file(f);
@@ -267,4 +301,27 @@ int64_t sys_audio_write(const uint8_t *pcm, size_t len)
 		return 0;
 	}
 	return sb16_write_pcm(pcm, len);
+}
+
+int64_t sys_get_args(char *dst, size_t max_len)
+{
+	if (!dst || max_len == 0)
+		return -1;
+	size_t i = 0;
+	while (s_exec_args[i] && i + 1 < max_len) {
+		dst[i] = s_exec_args[i];
+		i++;
+	}
+	dst[i] = '\0';
+	return (int64_t)i;
+}
+
+int64_t sys_win_blit(const uint32_t *buf, uint32_t w, uint32_t h)
+{
+	return sim_engine_win_blit(current_proc, buf, w, h);
+}
+
+int64_t sys_win_read(uint32_t slot, uint32_t *dst, uint32_t max_pixels)
+{
+	return sim_engine_win_read(slot, dst, max_pixels);
 }

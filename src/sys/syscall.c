@@ -20,4 +20,7 @@ const sys_call_t syscall_table[SYSCALL_NUMBER] = {
 	[SYS_SIM_START]     = (sys_call_t)sys_sim_start,
 	[SYS_SIM_POLL]      = (sys_call_t)sys_sim_poll,
 	[SYS_AUDIO_WRITE]   = (sys_call_t)sys_audio_write,
+	[SYS_GET_ARGS]      = (sys_call_t)sys_get_args,
+	[SYS_WIN_BLIT]      = (sys_call_t)sys_win_blit,
+	[SYS_WIN_READ]      = (sys_call_t)sys_win_read,
 };

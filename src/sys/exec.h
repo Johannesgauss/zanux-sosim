@@ -141,4 +141,23 @@ int64_t sys_sim_poll(void *out_trace);
  */
 int64_t sys_audio_write(const uint8_t *pcm, size_t len);
 
+/**
+ * @brief Retrieve the command-line arguments passed to the most recent `sys_exec()` (`SYS_GET_ARGS`, syscall 15).
+ *
+ * @param dst     Destination buffer for NUL-terminated argument string.
+ * @param max_len Capacity of @p dst in bytes.
+ * @return Length of copied string (excluding NUL), or -1 on invalid pointer/length.
+ */
+int64_t sys_get_args(char *dst, size_t max_len);
+
+/**
+ * @brief Submit a Ring 3 worker's live mini-window frame (`SYS_WIN_BLIT`, syscall 16).
+ */
+int64_t sys_win_blit(const uint32_t *buf, uint32_t w, uint32_t h);
+
+/**
+ * @brief Read a Ring 3 worker's latest mini-window frame (`SYS_WIN_READ`, syscall 17).
+ */
+int64_t sys_win_read(uint32_t slot, uint32_t *dst, uint32_t max_pixels);
+
 #endif // SYS_EXEC_H

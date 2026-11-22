@@ -19,6 +19,9 @@
 #define SYS_SIM_START     12
 #define SYS_SIM_POLL      13
 #define SYS_AUDIO_WRITE   14
+#define SYS_GET_ARGS      15
+#define SYS_WIN_BLIT      16
+#define SYS_WIN_READ      17
 
 static inline int64_t syscall0(uint64_t num)
 {
@@ -135,6 +138,21 @@ static inline int64_t sys_sim_poll(void *out_trace)
 static inline int64_t sys_audio_write(const uint8_t *pcm, size_t len)
 {
 	return syscall3(SYS_AUDIO_WRITE, (uint64_t)pcm, (uint64_t)len, 0);
+}
+
+static inline int64_t sys_get_args(char *dst, size_t max_len)
+{
+	return syscall3(SYS_GET_ARGS, (uint64_t)dst, (uint64_t)max_len, 0);
+}
+
+static inline int64_t sys_win_blit(const uint32_t *buf, uint32_t w, uint32_t h)
+{
+	return syscall3(SYS_WIN_BLIT, (uint64_t)buf, (uint64_t)w, (uint64_t)h);
+}
+
+static inline int64_t sys_win_read(uint32_t slot, uint32_t *dst, uint32_t max_pixels)
+{
+	return syscall3(SYS_WIN_READ, (uint64_t)slot, (uint64_t)dst, (uint64_t)max_pixels);
 }
 
 #endif // USER_LIB_SYSCALL_H
