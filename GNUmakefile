@@ -118,6 +118,19 @@ run-debug: $(IMAGE_NAME).iso
 gdb:
 	gdb -ex "target remote :1234" -ex "symbol-file bin/$(OUTPUT)" -ex "set disassembly-flavor att"
 
+.PHONY: test-sched test-ui run-simso view-log
+test-sched:
+	$(MAKE) -C tools test-sched
+
+test-ui:
+	$(MAKE) -C tools test-ui
+
+run-simso:
+	$(MAKE) -C tools run-simso
+
+view-log:
+	$(MAKE) -C tools view-log
+
 .PHONY: run-uefi
 run-uefi: edk2-ovmf-bins $(IMAGE_NAME).iso
 	qemu-system-x86_64 \
@@ -371,12 +384,13 @@ DISK_PART_OFFSET := 1048576
 DISK_PART_UUID := 11223344-5566-7788-99AA-BBCCDDEEFF00
 DISK_FILES :=
 
-$(DISK_IMG): user/shell/shell.c user/worker/worker.S user/simso/simso.c user/simso/simso_render.c user/simso/simso_json.c $(wildcard user/apps/*.c) $(wildcard casos/*.json)
+$(DISK_IMG): user/shell/shell.c user/worker/worker.S user/simso/simso.c user/simso/simso_render.c user/simso/simso_json.c user/vim/vim.c $(wildcard user/apps/*.c) $(wildcard casos/*.json)
 	$(MAKE) -C user/libc
 	$(MAKE) -C user/shell
 	$(MAKE) -C user/worker
 	$(MAKE) -C user/apps
 	$(MAKE) -C user/simso
+	$(MAKE) -C user/vim
 	rm -f $(DISK_IMG)
 	dd if=/dev/zero of=$(DISK_IMG) bs=1M count=$(DISK_SIZE)
 	printf 'label: gpt\nstart=$(DISK_PART_START), type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, uuid=$(DISK_PART_UUID)\n' | sfdisk $(DISK_IMG)
@@ -388,6 +402,7 @@ $(DISK_IMG): user/shell/shell.c user/worker/worker.S user/simso/simso.c user/sim
 	mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/apps/LIFE.BIN ::/
 	mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/apps/PLASMA.BIN ::/
 	mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/simso/SIMSO.BIN ::/
+	mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/vim/VIM.BIN ::/
 	if [ -f "casos/caso1.json" ]; then mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) casos/caso1.json ::/CASO1.JSN; fi
 	if [ -f "casos/caso2.json" ]; then mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) casos/caso2.json ::/CASO2.JSN; fi
 	if [ -f "user/doom/DOOM.BIN" ]; then mcopy -o -i $(DISK_IMG)@@$(DISK_PART_OFFSET) user/doom/DOOM.BIN ::/; fi
