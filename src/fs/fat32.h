@@ -37,6 +37,7 @@ size_t fat32_dir_entries_count(void);
 int64_t fat32_file_size(struct fat32_dir_entry *root_dir, char filename[FAT32_FILENAME_SIZE]);
 void fat32_close_file(struct file file);
 struct file fat32_read_file(struct fat32_dir_entry *root_dir, char filename[FAT32_FILENAME_SIZE]);
+bool fat32_write_file(char filename[FAT32_FILENAME_SIZE], const void *data, size_t size);
 
 #endif //FS_FAT32_H
 

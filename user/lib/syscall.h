@@ -22,6 +22,7 @@
 #define SYS_GET_ARGS      15
 #define SYS_WIN_BLIT      16
 #define SYS_WIN_READ      17
+#define SYS_WRITE_FILE    18
 
 static inline int64_t syscall0(uint64_t num)
 {
@@ -153,6 +154,11 @@ static inline int64_t sys_win_blit(const uint32_t *buf, uint32_t w, uint32_t h)
 static inline int64_t sys_win_read(uint32_t slot, uint32_t *dst, uint32_t max_pixels)
 {
 	return syscall3(SYS_WIN_READ, (uint64_t)slot, (uint64_t)dst, (uint64_t)max_pixels);
+}
+
+static inline int64_t sys_write_file(const char *name, const void *src, size_t len)
+{
+	return syscall3(SYS_WRITE_FILE, (uint64_t)name, (uint64_t)src, (uint64_t)len);
 }
 
 #endif // USER_LIB_SYSCALL_H

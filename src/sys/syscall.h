@@ -27,9 +27,10 @@
 #define SYS_GET_ARGS      15
 #define SYS_WIN_BLIT      16
 #define SYS_WIN_READ      17
+#define SYS_WRITE_FILE    18
 
 /** Total number of registered system calls in `syscall_table`. */
-#define SYSCALL_NUMBER 18
+#define SYSCALL_NUMBER 19
 
 /** Generic 6-argument syscall handler function pointer type. */
 typedef int64_t (*sys_call_t)(umax, umax, umax, umax, umax, umax);

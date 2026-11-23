@@ -23,4 +23,5 @@ const sys_call_t syscall_table[SYSCALL_NUMBER] = {
 	[SYS_GET_ARGS]      = (sys_call_t)sys_get_args,
 	[SYS_WIN_BLIT]      = (sys_call_t)sys_win_blit,
 	[SYS_WIN_READ]      = (sys_call_t)sys_win_read,
+	[SYS_WRITE_FILE]    = (sys_call_t)sys_write_file,
 };

@@ -202,3 +202,150 @@ FOUND:;
 RETURN:;
 	return file;
 }
+
+static bool fat32_set_fat_entry(uint32_t cluster, uint32_t val)
+{
+	uint32_t fat_sec_off = cluster / ENTRIES_PER_SECTOR;
+	uint32_t idx = cluster % ENTRIES_PER_SECTOR;
+	uint32_t lba = s_fat_first_lba + fat_sec_off;
+
+	uint32_t sec[ENTRIES_PER_SECTOR];
+	if (!blk_read_sectors(lba, 1, (uint8_t *)sec))
+		return false;
+	sec[idx] = (sec[idx] & 0xF0000000U) | (val & 0x0FFFFFFFU);
+
+	for (uint8_t f = 0; f < s_fat32_volume_id.bpb.fat_num; f++) {
+		uint32_t flba = s_fat_first_lba + f * s_fat32_volume_id.sectors_per_fat + fat_sec_off;
+		if (!blk_write_sectors(flba, 1, (const uint8_t *)sec))
+			return false;
+	}
+	s_cached_sector_slice_fat_lba = 0xFFFFFFFFU;
+	return true;
+}
+
+static uint32_t fat32_alloc_cluster(void)
+{
+	uint32_t sec[ENTRIES_PER_SECTOR];
+	for (uint32_t s = 0; s < s_fat32_volume_id.sectors_per_fat; s++) {
+		if (!blk_read_sectors(s_fat_first_lba + s, 1, (uint8_t *)sec))
+			return 0;
+		uint32_t start = (s == 0) ? 2U : 0U;
+		for (uint32_t i = start; i < ENTRIES_PER_SECTOR; i++) {
+			if ((sec[i] & 0x0FFFFFFFU) == 0U) {
+				uint32_t cl = s * ENTRIES_PER_SECTOR + i;
+				if (!fat32_set_fat_entry(cl, 0x0FFFFFFFU))
+					return 0;
+				return cl;
+			}
+		}
+	}
+	return 0;
+}
+
+static void fat32_free_chain(uint32_t start_cluster)
+{
+	uint32_t cur = start_cluster;
+	while (cur >= 2U && cur < FAT32_EOC) {
+		uint32_t next = fat32_next_cluster(cur);
+		fat32_set_fat_entry(cur, 0U);
+		cur = next;
+	}
+}
+
+bool fat32_write_file(char filename[FAT32_FILENAME_SIZE], const void *data, size_t size)
+{
+	if (!filename || (size > 0 && !data))
+		return false;
+
+	struct fat32_dir_entry *root = fat32_open_root_dir();
+	if (!root)
+		return false;
+
+	int found_idx = -1;
+	int free_idx = -1;
+	for (size_t i = 0; i < s_dir_entries_num; i++) {
+		uint8_t b0 = root[i].filename[0];
+		if (b0 == 0x00) {
+			if (free_idx < 0)
+				free_idx = (int)i;
+			break;
+		}
+		if (b0 == 0xE5) {
+			if (free_idx < 0)
+				free_idx = (int)i;
+			continue;
+		}
+		if ((root[i].attr & FAT32_LFN_MARKER) == FAT32_LFN_MARKER)
+			continue;
+		if (!memcmp(root[i].filename, filename, FAT32_FILENAME_SIZE)) {
+			found_idx = (int)i;
+			break;
+		}
+	}
+
+	int slot = (found_idx >= 0) ? found_idx : free_idx;
+	if (slot < 0) {
+		kfree(root);
+		return false;
+	}
+
+	if (found_idx >= 0) {
+		uint32_t old_cl = ((uint32_t)root[slot].cluster_high << 16) | root[slot].cluster_low;
+		if (old_cl >= 2U)
+			fat32_free_chain(old_cl);
+	}
+
+	uint32_t first_cluster = 0;
+	uint32_t prev_cluster = 0;
+	size_t cbytes = CLUSTER_BYTES;
+	uint8_t spc = s_fat32_volume_id.bpb.sectors_per_cluster;
+
+	if (size > 0) {
+		uint8_t *cbuf = (uint8_t *)kmalloc(cbytes);
+		if (!cbuf) {
+			kfree(root);
+			return false;
+		}
+		const uint8_t *src = (const uint8_t *)data;
+		size_t remaining = size;
+		while (remaining > 0) {
+			uint32_t cl = fat32_alloc_cluster();
+			if (cl < 2U) {
+				if (first_cluster >= 2U)
+					fat32_free_chain(first_cluster);
+				kfree(cbuf);
+				kfree(root);
+				return false;
+			}
+			if (first_cluster == 0)
+				first_cluster = cl;
+			if (prev_cluster >= 2U)
+				fat32_set_fat_entry(prev_cluster, cl);
+			prev_cluster = cl;
+
+			size_t chunk = (remaining < cbytes) ? remaining : cbytes;
+			memset(cbuf, 0, cbytes);
+			memcpy(cbuf, src, chunk);
+			if (!blk_write_sectors(cluster_to_lba(cl), spc, cbuf)) {
+				fat32_free_chain(first_cluster);
+				kfree(cbuf);
+				kfree(root);
+				return false;
+			}
+			src += chunk;
+			remaining -= chunk;
+		}
+		kfree(cbuf);
+	}
+
+	memset(&root[slot], 0, sizeof(struct fat32_dir_entry));
+	memcpy(root[slot].filename, filename, FAT32_FILENAME_SIZE);
+	root[slot].attr = FAT32_DIR_ENTRY_ATTR_ARCHIVE;
+	root[slot].cluster_high = (uint16_t)(first_cluster >> 16);
+	root[slot].cluster_low  = (uint16_t)(first_cluster & 0xFFFFU);
+	root[slot].size         = (uint32_t)size;
+
+	bool ok = blk_write_sectors(cluster_to_lba(s_fat32_volume_id.root_cluster), spc, (const uint8_t *)root);
+	kfree(root);
+	return ok;
+}

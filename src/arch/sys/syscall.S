@@ -12,7 +12,7 @@ sys_exit:
 .global syscall_handler
 .type syscall_handler, @function
 .extern syscall_table
-#define SYSCALL_NUMBER 18
+#define SYSCALL_NUMBER 19
 syscall_handler:
 	mov %rsp, user_rps(%rip)
 	mov tss+4(%rip), %rsp

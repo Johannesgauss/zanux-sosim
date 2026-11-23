@@ -325,3 +325,13 @@ int64_t sys_win_read(uint32_t slot, uint32_t *dst, uint32_t max_pixels)
 {
 	return sim_engine_win_read(slot, dst, max_pixels);
 }
+
+int64_t sys_write_file(const char *name, const void *src, size_t len)
+{
+	if (!name || !name[0] || (len > 0 && !src))
+		return -1;
+	char name83[FAT32_FILENAME_SIZE];
+	if (!to_fat83(name, name83))
+		return -1;
+	return fat32_write_file(name83, src, len) ? (int64_t)len : -1;
+}

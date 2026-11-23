@@ -43,4 +43,9 @@ bool blk_is_ramdisk(void);
  */
 bool blk_read_sectors(uint32_t lba, uint8_t count, uint8_t *buf);
 
+/**
+ * @brief Write contiguous 512-byte sectors to the active block device.
+ */
+bool blk_write_sectors(uint32_t lba, uint8_t count, const uint8_t *buf);
+
 #endif // DRIVERS_DISK_BLK_H

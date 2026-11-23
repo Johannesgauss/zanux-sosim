@@ -152,6 +152,7 @@ int shell_main(void)
 			puts_stdout("  cat <file>   - print file contents\n");
 			puts_stdout("  clear        - clear screen (or Ctrl+L)\n");
 			puts_stdout("  simso [args] - run scheduler simulator (--alg --input --seed --delay)\n");
+			puts_stdout("  vim [file]   - vim-like editor with file sidebar (edit/create JSON cases)\n");
 			puts_stdout("  doom         - run DOOM.BIN\n");
 			puts_stdout("  echo <msg>   - print text\n");
 			puts_stdout("  run <file>   - spawn a binary from disk\n");
@@ -178,6 +179,22 @@ int shell_main(void)
 			cmd[pos] = '\0';
 			if (sys_exec(cmd) < 0)
 				puts_stdout("Failed to launch SIMSO.BIN.\n");
+		} else if (str_cmp(line, "vim") == 0 || str_ncmp(line, "vim ", 4) == 0) {
+			char cmd[160];
+			const char *prefix = "VIM.BIN";
+			size_t pos = 0;
+			while (prefix[pos]) {
+				cmd[pos] = prefix[pos];
+				pos++;
+			}
+			if (line[3] == ' ') {
+				size_t i = 3;
+				while (line[i] && pos + 1 < sizeof(cmd))
+					cmd[pos++] = line[i++];
+			}
+			cmd[pos] = '\0';
+			if (sys_exec(cmd) < 0)
+				puts_stdout("Failed to launch VIM.BIN.\n");
 		} else if (str_cmp(line, "doom") == 0) {
 			puts_stdout("Launching DOOM.BIN...\n");
 			if (sys_exec("DOOM.BIN") < 0)

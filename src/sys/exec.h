@@ -160,4 +160,9 @@ int64_t sys_win_blit(const uint32_t *buf, uint32_t w, uint32_t h);
  */
 int64_t sys_win_read(uint32_t slot, uint32_t *dst, uint32_t max_pixels);
 
+/**
+ * @brief Create or overwrite a file in the FAT32 root directory (`SYS_WRITE_FILE`, syscall 18).
+ */
+int64_t sys_write_file(const char *name, const void *src, size_t len);
+
 #endif // SYS_EXEC_H
