@@ -152,7 +152,7 @@ static void draw_legend(uint32_t *fb, uint32_t w, uint32_t h, uint32_t x, uint32
  * Rows are `pitch` px apart; at most max_rows rows are used, and if the tasks do not all
  * fit the last line reports how many are hidden. */
 static void draw_table(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s,
-                       uint32_t y, uint32_t pitch, uint32_t max_rows)
+                       uint32_t y, uint32_t pitch, uint32_t max_rows, uint32_t vis)
 {
 	static const char *heads[10] = {
 		"ID", "Cheg", "Exec", "Dead", "Prio", "Ini", "Term", "Esp", "TAT", "DeadOK"
@@ -180,15 +180,21 @@ static void draw_table(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s
 		draw_uint(fb, w, h, cx[2], ry, t->burst,    COL_TEXT);
 		draw_uint(fb, w, h, cx[3], ry, t->deadline, COL_TEXT);
 		draw_uint(fb, w, h, cx[4], ry, t->priority, COL_TEXT);
-		if (t->state == TASK_DONE) {
-			draw_uint(fb, w, h, cx[5], ry, t->start,      COL_TEXT);
-			draw_uint(fb, w, h, cx[6], ry, t->finish,     COL_TEXT);
+		/* Step-by-step: show only what has happened within the first `vis` ticks. */
+		bool started  = (t->start != 0xFFFFFFFFU && t->start < vis);
+		bool finished = (t->state == TASK_DONE && t->finish <= vis);
+		if (started)
+			draw_uint(fb, w, h, cx[5], ry, t->start, COL_TEXT);
+		else
+			draw_text(fb, w, h, cx[5], ry, "-", COL_GRID);
+		if (finished) {
+						draw_uint(fb, w, h, cx[6], ry, t->finish,     COL_TEXT);
 			draw_uint(fb, w, h, cx[7], ry, t->wait,       COL_TEXT);
 			draw_uint(fb, w, h, cx[8], ry, t->turnaround, COL_TEXT);
 			draw_text(fb, w, h, cx[9], ry, t->ok ? "SIM" : "NAO",
 			          t->ok ? COL_EXEC : COL_OVERHEAD);
 		} else {
-			for (uint32_t c = 5; c < 10; c++)
+			for (uint32_t c = 6; c < 10; c++)
 				draw_text(fb, w, h, cx[c], ry, "-", COL_GRID);
 		}
 	}
@@ -321,13 +327,27 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 
 	/* Bottom panel: info line, summary, then the final table. */
 	draw_legend(fb, w, h, 48, gy + gh + 4);
+
+	/* Step-by-step: derive the counters from the first `vis` ticks of the timeline.
+	 * A context switch is a change of the running task between two owned ticks. */
+	uint32_t ctx_seen = 0, idle_seen = 0;
+	int last_task = -1;
+	for (uint32_t t = 0; t < vis && t < SIM_MAX_TICKS; t++) {
+		if (s->tl_kind[t] == TICK_IDLE)
+			idle_seen++;
+		if (s->tl_task[t] >= 0 && (int)s->tl_task[t] != last_task) {
+			if (last_task >= 0)
+				ctx_seen++;
+			last_task = s->tl_task[t];
+		}
+	}
 		fill_rect(fb, w, h, 16, by, w - 32, h - (by + 8), COL_PANEL);
 	draw_text(fb, w, h, 24,  by + 8, "ALG:", COL_TEXT);
 	draw_text(fb, w, h, 64,  by + 8, (s->alg < ALG_COUNT) ? s_alg_names[s->alg] : "?", COL_EXEC);
 	draw_text(fb, w, h, 140, by + 8, "TICKS:", COL_TEXT);
-	draw_uint(fb, w, h, 196, by + 8, (s->total_ticks > 0) ? s->total_ticks : s->now, COL_TEXT);
+	draw_uint(fb, w, h, 196, by + 8, vis, COL_TEXT);
 	draw_text(fb, w, h, 244, by + 8, "CTXSW:", COL_TEXT);
-	draw_uint(fb, w, h, 300, by + 8, s->ctx_switches, COL_OVERHEAD);
+	draw_uint(fb, w, h, 300, by + 8, ctx_seen, COL_OVERHEAD);
 	draw_text(fb, w, h, 348, by + 8, "Q:", COL_TEXT);
 	draw_uint(fb, w, h, 368, by + 8, s->quantum, COL_TEXT);
 	draw_text(fb, w, h, 404, by + 8, "OV:", COL_TEXT);
@@ -337,17 +357,17 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 	uint32_t done = 0, sum_wait = 0, sum_tat = 0;
 	for (uint32_t i = 0; i < s->n; i++)
 	{
-		if (s->tasks[i].state != TASK_DONE)
+		if (s->tasks[i].state != TASK_DONE || s->tasks[i].finish > vis)
 			continue;
 		done++;
 		sum_wait += s->tasks[i].wait;
 		sum_tat += s->tasks[i].turnaround;
 	}
-	uint32_t tt = (s->total_ticks > 0) ? s->total_ticks : s->now;
+	uint32_t tt = vis; /* ticks shown so far */
 	uint32_t avg_wait = done ? (sum_wait * 100) / done : 0;
 	uint32_t avg_tat = done ? (sum_tat * 100) / done : 0;
 	uint32_t thr = tt ? (done * 100) / tt : 0; /* tasks per tick */
-	uint32_t idle_pct = tt ? (s->idle_ticks * 100) / tt : 0;
+	uint32_t idle_pct = tt ? (idle_seen * 100) / tt : 0;
 
 	uint32_t ry = by + 24;
 	/* Each item: label at SUM_X0 + k * SUM_PITCH, value right after it
@@ -368,5 +388,5 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 
 	/* Thin divider between the summary and the table. */
 	fill_rect(fb, w, h, 24, by + TBL_Y_OFF - 4, w - 48, 1, COL_GRID);
-	draw_table(fb, w, h, s, by + TBL_Y_OFF, pitch, tbl_rows);
+	draw_table(fb, w, h, s, by + TBL_Y_OFF, pitch, tbl_rows, vis);
 }
