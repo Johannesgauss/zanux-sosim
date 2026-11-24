@@ -134,17 +134,25 @@ static void draw_legend(uint32_t *fb, uint32_t w, uint32_t h, uint32_t x, uint32
 #define SUM_X0     24U /* left edge of the summary row */
 #define SUM_PITCH  100U /* distance between summary items (label + value) */
 
-/* Vertical layout below the Gantt (all in pixels). */
-#define PANEL_GAP    20U /* Gantt bottom -> bottom panel top (the legend sits in this gap) */
-#define TBL_Y_OFF    36U /* bottom panel top -> table header */
-#define TBL_HEAD_H   12U /* table header height */
-#define TBL_ROW_H    10U /* one table row */
-#define PANEL_MARGIN  8U /* free space kept under the bottom panel */
-#define MAX_CELL     24U /* largest Gantt cell (square side) */
+/* Vertical layout (all in pixels). The bottom panel (info line, summary, table) is
+ * anchored to the bottom of the window; the Gantt + legend are centered in the space
+ * between GANTT_Y_MIN and the top of that panel. */
+#define GANTT_Y_MIN     142U /* y=46..136 is reserved for the live Ring 3 windows */
+#define LEGEND_BLOCK     12U /* legend height (8 px) + 4 px gap under the Gantt */
+#define GANTT_PAD         4U /* minimum free space above and below the Gantt block */
+#define MIN_GANTT_ZONE   56U /* the Gantt zone never shrinks below this, even with many tasks */
+#define TBL_Y_OFF        42U /* bottom panel top -> table header */
+#define TBL_HEAD_H       14U /* table header height */
+#define TBL_ROW_MAX      14U /* preferred row pitch of the table */
+#define TBL_ROW_MIN      10U /* smallest row pitch, used when there are many tasks */
+#define PANEL_MARGIN      8U /* free space kept under the bottom panel */
+#define MAX_CELL         24U /* largest Gantt cell (square side) */
 
 /* Final table: header + one row per task, starting at row y.
- * Shows as many rows as fit on screen; the last line reports how many are hidden. */
-static void draw_table(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uint32_t y)
+ * Rows are `pitch` px apart; at most max_rows rows are used, and if the tasks do not all
+ * fit the last line reports how many are hidden. */
+static void draw_table(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s,
+                       uint32_t y, uint32_t pitch, uint32_t max_rows)
 {
 	static const char *heads[10] = {
 		"ID", "Cheg", "Exec", "Dead", "Prio", "Ini", "Term", "Esp", "TAT", "DeadOK"
@@ -159,14 +167,14 @@ static void draw_table(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s
 	y += TBL_HEAD_H;
 
 	/* How many rows fit before the bottom of the panel (h - PANEL_MARGIN). */
-	uint32_t room = (y + 6 < h) ? (h - 6 - y) / TBL_ROW_H : 0;
+	uint32_t room = max_rows; /* rows reserved by the caller (includes the "hidden" note) */
 	uint32_t shown = s->n;
 	if (s->n > room)
 		shown = (room > 0) ? room - 1 : 0; /* keep one line for the "hidden" note */
 
 	for (uint32_t i = 0; i < shown; i++) {
 		const struct task *t = &s->tasks[i];
-		uint32_t ry = y + i * TBL_ROW_H;
+		uint32_t ry = y + i * pitch;
 		draw_text(fb, w, h, cx[0], ry, t->name, COL_TEXT);
 		draw_uint(fb, w, h, cx[1], ry, t->arrival,  COL_TEXT);
 		draw_uint(fb, w, h, cx[2], ry, t->burst,    COL_TEXT);
@@ -186,8 +194,8 @@ static void draw_table(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s
 	}
 
 	if (shown < s->n && room > 0) {
-		draw_text(fb, w, h, cx[0], y + shown * TBL_ROW_H, "MAIS:", COL_DEADLINE);
-		draw_uint(fb, w, h, cx[0] + 6 * 8, y + shown * TBL_ROW_H, s->n - shown, COL_DEADLINE);
+		draw_text(fb, w, h, cx[0], y + shown * pitch, "MAIS:", COL_DEADLINE);
+		draw_uint(fb, w, h, cx[0] + 6 * 8, y + shown * pitch, s->n - shown, COL_DEADLINE);
 	}
 }
 
@@ -225,16 +233,30 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 	uint32_t scale_ticks = (s->total_ticks > 0) ? s->total_ticks : ((total < 20U) ? 20U : total);
 	if (vis > total) vis = total;
 
-	/* Reserve y=46..136 for live Ring 3 process windows; the Gantt starts at y=142. */
-	uint32_t gx = 48, gy = 142, gw = (w > 64) ? (w - 64) : w;
+	/* Reserve y=46..136 for live Ring 3 process windows; the Gantt is centered below y=142. */
+	uint32_t gx = 48, gw = (w > 64) ? (w - 64) : w;
 
 	/* Square cells: one cell (tick x task) is cs x cs pixels, so the tick width
 	 * equals the row height. The table below is laid out first (it needs
-	 * PANEL_GAP + header + one row per task), and the Gantt gets the height left.
+	 * header + one row per task), anchored to the window bottom; the Gantt gets the height left.
 	 * cs is the largest square that fits the width and that height, capped at MAX_CELL. */
 	uint32_t rows = (s->n > 0) ? s->n : 1; /* one row per task (no separate OV row) */
-	uint32_t below = PANEL_GAP + TBL_Y_OFF + TBL_HEAD_H + s->n * TBL_ROW_H + PANEL_MARGIN;
-	uint32_t g_budget = (h > gy + below + 40) ? (h - gy - below) : 40; /* keep >= 40 px */
+	/* How many table rows we can afford while the Gantt zone keeps at least MIN_GANTT_ZONE. */
+	uint32_t fixed_h = GANTT_Y_MIN + MIN_GANTT_ZONE + TBL_Y_OFF + TBL_HEAD_H + PANEL_MARGIN;
+	uint32_t max_rows = (h > fixed_h) ? (h - fixed_h) / TBL_ROW_MIN : 0;
+	uint32_t tbl_rows = (s->n < max_rows) ? s->n : max_rows;
+
+	/* Start with the roomy row pitch and tighten it only if the Gantt would get too small. */
+	uint32_t pitch = TBL_ROW_MAX, stack, zone;
+	for (;;) {
+		stack = TBL_Y_OFF + TBL_HEAD_H + tbl_rows * pitch + PANEL_MARGIN; /* bottom panel height */
+		zone = (h > GANTT_Y_MIN + stack) ? (h - GANTT_Y_MIN - stack) : 0;  /* free height for the Gantt */
+		if (pitch <= TBL_ROW_MIN || zone >= rows * 8 + LEGEND_BLOCK + 2 * GANTT_PAD)
+			break;
+		pitch--;
+	}
+	uint32_t by = h - stack; /* top of the bottom panel (anchored to the window bottom) */
+	uint32_t g_budget = (zone > LEGEND_BLOCK + 2 * GANTT_PAD) ? (zone - LEGEND_BLOCK - 2 * GANTT_PAD) : 0;
 	uint32_t cs = gw / scale_ticks;
 	if (g_budget / rows < cs) cs = g_budget / rows;
 	if (cs > MAX_CELL) cs = MAX_CELL;
@@ -242,6 +264,8 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 	uint32_t row_h = cs, tick_w = cs;
 	gw = cs * scale_ticks;  /* the panel is exactly as wide as the grid */
 	uint32_t gh = cs * rows;
+	uint32_t block = gh + LEGEND_BLOCK; /* Gantt grid + legend, centered together */
+	uint32_t gy = GANTT_Y_MIN + ((zone > block) ? (zone - block) / 2 : 0);
 	fill_rect(fb, w, h, gx, gy, gw, gh, COL_PANEL);
 
 	for (uint32_t r = 0; r <= rows; r++)
@@ -297,8 +321,7 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 
 	/* Bottom panel: info line, summary, then the final table. */
 	draw_legend(fb, w, h, 48, gy + gh + 4);
-	uint32_t by = gy + gh + PANEL_GAP;
-	fill_rect(fb, w, h, 16, by, w - 32, h - (by + 8), COL_PANEL);
+		fill_rect(fb, w, h, 16, by, w - 32, h - (by + 8), COL_PANEL);
 	draw_text(fb, w, h, 24,  by + 8, "ALG:", COL_TEXT);
 	draw_text(fb, w, h, 64,  by + 8, (s->alg < ALG_COUNT) ? s_alg_names[s->alg] : "?", COL_EXEC);
 	draw_text(fb, w, h, 140, by + 8, "TICKS:", COL_TEXT);
@@ -326,7 +349,7 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 	uint32_t thr = tt ? (done * 100) / tt : 0; /* tasks per tick */
 	uint32_t idle_pct = tt ? (s->idle_ticks * 100) / tt : 0;
 
-	uint32_t ry = by + 22;
+	uint32_t ry = by + 24;
 	/* Each item: label at SUM_X0 + k * SUM_PITCH, value right after it
 	 * (label length + 1 space, 8 px per character). */
 	uint32_t sx = SUM_X0;
@@ -345,5 +368,5 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 
 	/* Thin divider between the summary and the table. */
 	fill_rect(fb, w, h, 24, by + TBL_Y_OFF - 4, w - 48, 1, COL_GRID);
-	draw_table(fb, w, h, s, by + TBL_Y_OFF);
+	draw_table(fb, w, h, s, by + TBL_Y_OFF, pitch, tbl_rows);
 }
