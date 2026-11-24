@@ -86,6 +86,26 @@ static void draw_fixed2(uint32_t *fb, uint32_t w, uint32_t h,
 	draw_text(fb, w, h, x, y, buf, col);
 }
 
+/* Number of characters of a string (no libc here, so we count by hand). */
+static uint32_t text_len(const char *s)
+{
+	uint32_t n = 0;
+	while (s[n])
+		n++;
+	return n;
+}
+
+/* Number of decimal digits of v (0 has one digit). */
+static uint32_t uint_len(uint32_t v)
+{
+	uint32_t n = 1;
+	while (v >= 10) {
+		v /= 10;
+		n++;
+	}
+	return n;
+}
+
 /* Legend: a colored square + a label per item, in one row starting at (x, y). */
 static void draw_legend(uint32_t *fb, uint32_t w, uint32_t h, uint32_t x, uint32_t y)
 {
@@ -105,10 +125,7 @@ static void draw_legend(uint32_t *fb, uint32_t w, uint32_t h, uint32_t x, uint32
 	{
 		fill_rect(fb, w, h, x, y, 8, 8, items[i].col);
 		draw_text(fb, w, h, x + 12, y, items[i].label, COL_TEXT);
-		uint32_t len = 0;
-		while (items[i].label[len])
-			len++; /* no libc here: count the length by hand */
-		x += 12 + len * 8 + 12;
+		x += 12 + text_len(items[i].label) * 8 + 12;
 	}
 }
 
@@ -116,6 +133,14 @@ static void draw_legend(uint32_t *fb, uint32_t w, uint32_t h, uint32_t x, uint32
 #define TBL_COL_W  40U /* column pitch: 5 characters of 8 px */
 #define SUM_X0     24U /* left edge of the summary row */
 #define SUM_PITCH  100U /* distance between summary items (label + value) */
+
+/* Vertical layout below the Gantt (all in pixels). */
+#define PANEL_GAP    20U /* Gantt bottom -> bottom panel top (the legend sits in this gap) */
+#define TBL_Y_OFF    36U /* bottom panel top -> table header */
+#define TBL_HEAD_H   12U /* table header height */
+#define TBL_ROW_H    10U /* one table row */
+#define PANEL_MARGIN  8U /* free space kept under the bottom panel */
+#define MAX_CELL     24U /* largest Gantt cell (square side) */
 
 /* Final table: header + one row per task, starting at row y.
  * Shows as many rows as fit on screen; the last line reports how many are hidden. */
@@ -130,18 +155,18 @@ static void draw_table(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s
 		cx[c] = TBL_X0 + c * TBL_COL_W;
 
 	for (uint32_t c = 0; c < 10; c++)
-		draw_text(fb, w, h, cx[c], y, heads[c], COL_TEXT);
-	y += 12;
+		draw_text(fb, w, h, cx[c], y, heads[c], COL_MISS); /* dimmer than the data rows */
+	y += TBL_HEAD_H;
 
-	/* How many 10 px rows fit before the bottom of the panel (h - 8). */
-	uint32_t room = (y + 6 < h) ? (h - 6 - y) / 10 : 0;
+	/* How many rows fit before the bottom of the panel (h - PANEL_MARGIN). */
+	uint32_t room = (y + 6 < h) ? (h - 6 - y) / TBL_ROW_H : 0;
 	uint32_t shown = s->n;
 	if (s->n > room)
 		shown = (room > 0) ? room - 1 : 0; /* keep one line for the "hidden" note */
 
 	for (uint32_t i = 0; i < shown; i++) {
 		const struct task *t = &s->tasks[i];
-		uint32_t ry = y + i * 10;
+		uint32_t ry = y + i * TBL_ROW_H;
 		draw_text(fb, w, h, cx[0], ry, t->name, COL_TEXT);
 		draw_uint(fb, w, h, cx[1], ry, t->arrival,  COL_TEXT);
 		draw_uint(fb, w, h, cx[2], ry, t->burst,    COL_TEXT);
@@ -161,8 +186,8 @@ static void draw_table(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s
 	}
 
 	if (shown < s->n && room > 0) {
-		draw_text(fb, w, h, cx[0], y + shown * 10, "MAIS:", COL_DEADLINE);
-		draw_uint(fb, w, h, cx[0] + 6 * 8, y + shown * 10, s->n - shown, COL_DEADLINE);
+		draw_text(fb, w, h, cx[0], y + shown * TBL_ROW_H, "MAIS:", COL_DEADLINE);
+		draw_uint(fb, w, h, cx[0] + 6 * 8, y + shown * TBL_ROW_H, s->n - shown, COL_DEADLINE);
 	}
 }
 
@@ -183,10 +208,17 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 	if (!fb || !s || w == 0 || h == 0) return;
 	fill_rect(fb, w, h, 0, 0, w, h, COL_BG);
 
-	/* Header bar with 7 algorithm slots + color legend. */
+	/* Header bar with one named slot per algorithm; the active one is highlighted.
+	 * Slot width fits the longest name ("AUTORAL", 7 chars) plus a 8 px margin. */
 	fill_rect(fb, w, h, 16, 12, w - 32, 28, COL_PANEL);
-	for (uint32_t a = 0; a < ALG_COUNT; a++)
-		fill_rect(fb, w, h, 24 + a * 36, 18, 28, 16, (a == s->alg) ? COL_EXEC : COL_GRID);
+	for (uint32_t a = 0; a < ALG_COUNT; a++) {
+		uint32_t active = (a == s->alg);
+		uint32_t sx0 = 24 + a * 80, slot_w = 72;
+		uint32_t len = text_len(s_alg_names[a]);
+		fill_rect(fb, w, h, sx0, 18, slot_w, 16, active ? COL_EXEC : COL_GRID);
+		draw_text(fb, w, h, sx0 + (slot_w - len * 8) / 2, 22, s_alg_names[a],
+		          active ? COL_BG : COL_TEXT);
+	}
 
 	uint32_t total = (s->total_ticks > 0) ? s->total_ticks : s->now;
 	if (total == 0) total = 1;
@@ -197,12 +229,15 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 	uint32_t gx = 48, gy = 142, gw = (w > 64) ? (w - 64) : w;
 
 	/* Square cells: one cell (tick x task) is cs x cs pixels, so the tick width
-	 * equals the row height. cs is the largest square that fits the width and
-	 * the 152 px height budget, capped at 16 px so the table below keeps space. */
+	 * equals the row height. The table below is laid out first (it needs
+	 * PANEL_GAP + header + one row per task), and the Gantt gets the height left.
+	 * cs is the largest square that fits the width and that height, capped at MAX_CELL. */
 	uint32_t rows = (s->n > 0) ? s->n : 1; /* one row per task (no separate OV row) */
+	uint32_t below = PANEL_GAP + TBL_Y_OFF + TBL_HEAD_H + s->n * TBL_ROW_H + PANEL_MARGIN;
+	uint32_t g_budget = (h > gy + below + 40) ? (h - gy - below) : 40; /* keep >= 40 px */
 	uint32_t cs = gw / scale_ticks;
-	if (152 / rows < cs) cs = 152 / rows;
-	if (cs > 16) cs = 16;
+	if (g_budget / rows < cs) cs = g_budget / rows;
+	if (cs > MAX_CELL) cs = MAX_CELL;
 	if (cs < 2) cs = 2;
 	uint32_t row_h = cs, tick_w = cs;
 	gw = cs * scale_ticks;  /* the panel is exactly as wide as the grid */
@@ -260,9 +295,9 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 	for (uint32_t i = 0; i < s->n; i++)
 		draw_text(fb, w, h, 16, gy + i * row_h + (row_h > 8 ? (row_h - 8) / 2 : 0), s->tasks[i].name, COL_TEXT);
 
-	/* Bottom panel header (UI teammate expands table + averages here). */
+	/* Bottom panel: info line, summary, then the final table. */
 	draw_legend(fb, w, h, 48, gy + gh + 4);
-	uint32_t by = gy + gh + 20;
+	uint32_t by = gy + gh + PANEL_GAP;
 	fill_rect(fb, w, h, 16, by, w - 32, h - (by + 8), COL_PANEL);
 	draw_text(fb, w, h, 24,  by + 8, "ALG:", COL_TEXT);
 	draw_text(fb, w, h, 64,  by + 8, (s->alg < ALG_COUNT) ? s_alg_names[s->alg] : "?", COL_EXEC);
@@ -306,7 +341,9 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 	sx += SUM_PITCH;
 	draw_text(fb, w, h, sx, ry, "OCIO:", COL_TEXT);
 	draw_uint(fb, w, h, sx + 6 * 8, ry, idle_pct, COL_EXEC);
-	draw_text(fb, w, h, sx + 6 * 8 + 24, ry, "%", COL_EXEC);
+	draw_text(fb, w, h, sx + (6 + uint_len(idle_pct)) * 8, ry, "%", COL_EXEC); /* right after the digits */
 
-	draw_table(fb, w, h, s, ry + 14);
+	/* Thin divider between the summary and the table. */
+	fill_rect(fb, w, h, 24, by + TBL_Y_OFF - 4, w - 48, 1, COL_GRID);
+	draw_table(fb, w, h, s, by + TBL_Y_OFF);
 }
