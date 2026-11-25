@@ -21,7 +21,7 @@
 #define W_URG      4
 #define W_PRIO     3
 #define W_AGE      1
-#define W_STICK    8
+#define W_STICK   32
 
 int pick_autoral(struct task *t, uint32_t n, int cur, uint32_t now, uint32_t q)
 {
