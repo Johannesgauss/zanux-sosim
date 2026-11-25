@@ -23,6 +23,10 @@ static uint32_t s_irq_pace = 1;
 static uint32_t s_irq_subtick = 0;
 static int s_active_slot = -1;
 
+/* SIMSO process that already ran a simulation. Its first simulation is paced for the live
+ * windows; every restart by the same process runs at full speed (see sim_engine_start). */
+static struct proc *s_session_owner = NULL;
+
 /* Per-slot mini-window framebuffers filled by real Ring 3 workers via SYS_WIN_BLIT. */
 static uint32_t s_win_fb[SIM_WIN_SLOTS][SIM_WIN_W * SIM_WIN_H];
 static uint8_t  s_win_valid[SIM_WIN_SLOTS];
@@ -158,11 +162,31 @@ static bool ensure_workers(const struct sim *in_sim, bool *has_custom_bins)
 	return true;
 }
 
+/* Stop the running simulation and park every worker, like the normal end of a run. */
+static void abort_running(void)
+{
+	s_state = SIM_STATE_IDLE;
+	s_active_slot = -1;
+	for (uint32_t i = 0; i < s_worker_pool_count; i++) {
+		if (s_worker_pool[i])
+			s_worker_pool[i]->state = PROC_BLOCK;
+	}
+}
+
 int64_t sim_engine_start(const struct sim *in_sim, struct proc *owner)
 {
-	if (!in_sim || !owner || s_state == SIM_STATE_RUNNING)
+	if (!in_sim || !owner)
 		return -1;
 
+	/* A new start while one is running replaces it: this is how a key pressed in SIMSO
+	 * cancels the live run. Only the process that started the run may do so. */
+	if (s_state == SIM_STATE_RUNNING) {
+		if (owner != s_owner)
+			return -1;
+		abort_running();
+	}
+
+	bool restart = (owner == s_session_owner);
 	bool has_custom = false;
 	if (!ensure_workers(in_sim, &has_custom))
 		return -1;
@@ -171,12 +195,14 @@ int64_t sim_engine_start(const struct sim *in_sim, struct proc *owner)
 	if (!sim_init(&s_sim))
 		return -1;
 
-	for (uint32_t i = 0; i < SIM_WIN_SLOTS; i++) {
+	/* On a restart keep the last window frames, so the cards do not go blank. */
+	for (uint32_t i = 0; !restart && i < SIM_WIN_SLOTS; i++) {
 		s_win_valid[i] = 0;
 		memset(s_win_fb[i], 0, sizeof(s_win_fb[i]));
 	}
 
-	s_irq_pace = has_custom ? 24U : 1U;
+	s_irq_pace = (has_custom && !restart) ? 24U : 1U;
+	s_session_owner = owner;
 	s_irq_subtick = 0;
 	s_active_slot = -1;
 	s_owner = owner;
@@ -247,6 +273,15 @@ struct proc *sim_engine_tick(void)
 
 void sim_engine_on_proc_exit(struct proc *proc)
 {
+	if (proc && proc == s_session_owner)
+		s_session_owner = NULL;
+	if (proc && proc == s_owner) {
+		/* SIMSO quit (e.g. Esc) while a run was in progress: stop it, so the scheduler
+		 * never hands the CPU to a dead owner. */
+		if (s_state == SIM_STATE_RUNNING)
+			abort_running();
+		s_owner = NULL;
+	}
 	if (s_state != SIM_STATE_RUNNING || !proc)
 		return;
 	for (uint32_t i = 0; i < s_sim.n && i < s_worker_pool_count; i++) {

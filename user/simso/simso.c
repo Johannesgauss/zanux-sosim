@@ -201,7 +201,19 @@ static void draw_frame(const struct sim *s, uint32_t vis)
 	sys_fb_blit(s_fb, SIMSO_FB_W, SIMSO_FB_H);
 }
 
-static int run_kernel_sim(uint32_t alg)
+#define RUN_KEY 1 /* run_kernel_sim() stopped waiting because a hotkey was pressed */
+
+/* Scancodes that must react at once, even while a simulation is still running. */
+static bool is_hotkey(int32_t sc)
+{
+	return sc == 0x01 || sc == 0x10          /* Esc / Q */
+	    || (sc >= 0x02 && sc <= 0x08)        /* 1-7: algorithm */
+	    || sc == 0x39 || sc == 0x1C;         /* Space / Enter */
+}
+
+/* Starts the simulation in the kernel and draws it live. Returns 0 when it finished,
+ * -1 on error, or RUN_KEY (with *key set) if a hotkey was pressed before it finished. */
+static int run_kernel_sim(uint32_t alg, int32_t *key)
 {
 	copy_sim(&s_sim, &s_base_cfg);
 	s_sim.alg = alg;
@@ -210,6 +222,12 @@ static int run_kernel_sim(uint32_t alg)
 	uint32_t last_draw_ms = 0;
 	int64_t r;
 	while ((r = sys_sim_poll(&s_sim)) == 0) {
+		int32_t sc = sys_poll_scancode();
+		if (sc > 0 && !(sc & 0x80) && is_hotkey(sc)) {
+			*key = sc;
+			return RUN_KEY;
+		}
+
 		uint32_t now_ms = sys_ticks_ms();
 		if (now_ms - last_draw_ms >= 40U) {
 			draw_frame(&s_sim, s_sim.now);
@@ -219,6 +237,50 @@ static int run_kernel_sim(uint32_t alg)
 		}
 	}
 	return (r > 0) ? 0 : -1;
+}
+
+/* What the screen should show once a simulation is ready. */
+enum view { VIEW_DEFAULT = 0, VIEW_STEP, VIEW_FULL };
+
+/* Applies the view requested by a key pressed during the run. */
+static void apply_view(enum view v, uint32_t *vis, uint32_t *delay_ms)
+{
+	if (v == VIEW_STEP) {
+		*delay_ms = 0;
+		*vis = 1;
+	} else if (v == VIEW_FULL) {
+		*delay_ms = 0;
+		*vis = s_sim.total_ticks;
+	}
+}
+
+/* Runs the simulation and reacts to keys pressed while it runs:
+ *   1-7        restart at once with that algorithm;
+ *   Space      cut the animation short and show the result in step-by-step mode;
+ *   Enter      cut the animation short and show the full result;
+ *   Esc / Q    quit.
+ * The kernel runs only the first simulation of a session at the slow, live pace; every
+ * restart is fast, so these keys answer immediately.
+ * Returns 0 when a result is ready, 1 to quit, -1 on error. *alg may change. */
+static int run_interactive(uint32_t *alg, enum view *view)
+{
+	*view = VIEW_DEFAULT;
+	for (;;) {
+		int32_t key = 0;
+		int r = run_kernel_sim(*alg, &key);
+		if (r != RUN_KEY)
+			return r;
+		if (key == 0x01 || key == 0x10) {
+			return 1;
+		} else if (key >= 0x02 && key <= 0x08) {
+			*alg = (uint32_t)(key - 0x02);
+			*view = VIEW_DEFAULT;
+		} else if (key == 0x39) {
+			*view = VIEW_STEP;
+		} else if (key == 0x1C) {
+			*view = VIEW_FULL;
+		}
+	}
 }
 
 int simso_main(void)
@@ -288,9 +350,13 @@ int simso_main(void)
 	if (has_quantum) s_base_cfg.quantum = quantum_override;
 	if (has_overhead) s_base_cfg.overhead = overhead_override;
 
-	if (run_kernel_sim(alg) != 0) return 1;
+	enum view view;
+	int rr = run_interactive(&alg, &view);
+	if (rr < 0) return 1;
+	if (rr > 0) return 0; /* Esc / Q pressed during the first run */
 
 	uint32_t vis = (delay_ms > 0 && s_sim.total_ticks > 0) ? 1 : s_sim.total_ticks;
+	apply_view(view, &vis, &delay_ms);
 	uint32_t last_step_ms = sys_ticks_ms();
 	draw_frame(&s_sim, vis);
 
@@ -311,8 +377,12 @@ int simso_main(void)
 			if (sc == 0x01 || sc == 0x10) return 0; /* ESC / Q */
 			else if (sc >= 0x02 && sc <= 0x08) {
 				alg = (uint32_t)(sc - 0x02);
-				if (run_kernel_sim(alg) == 0) {
+				enum view v;
+				int rr2 = run_interactive(&alg, &v);
+				if (rr2 > 0) return 0; /* Esc / Q pressed while it ran */
+				if (rr2 == 0) {
 					vis = (delay_ms > 0 && s_sim.total_ticks > 0) ? 1 : s_sim.total_ticks;
+					apply_view(v, &vis, &delay_ms);
 					last_step_ms = sys_ticks_ms();
 					dirty = 1;
 				}
