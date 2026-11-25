@@ -169,10 +169,35 @@ static void composite_live_windows(uint32_t *fb, const struct sim *s, uint32_t v
 	}
 }
 
+/* Key hints, drawn in the free strip that render_gantt() leaves under the bottom panel.
+ * Keep this list in sync with the key handling in simso_main(). */
+static void draw_key_hints(void)
+{
+	static const struct { const char *key; const char *what; } hints[] = {
+		{ "ESPACO", "passo" },
+		{ "ENTER",  "completo" },
+		{ "1-7",    "algoritmo" },
+		{ "ESC",    "sair" },
+	};
+	struct zcanvas cv = { s_fb, SIMSO_FB_W, SIMSO_FB_H };
+	uint32_t x = 24U, y = SIMSO_FB_H - 14U;
+
+	for (uint32_t i = 0; i < sizeof(hints) / sizeof(hints[0]); i++) {
+		uint32_t klen = 0, wlen = 0;
+		while (hints[i].key[klen]) klen++;
+		while (hints[i].what[wlen]) wlen++;
+		zgfx_text(&cv, x, y, hints[i].key, COL_TEXT, 1);
+		x += (klen + 1U) * 8U; /* key + one space; the font is 8 px wide */
+		zgfx_text(&cv, x, y, hints[i].what, COL_MISS, 1);
+		x += wlen * 8U + 24U;  /* label + gap before the next hint */
+	}
+}
+
 static void draw_frame(const struct sim *s, uint32_t vis)
 {
 	render_gantt(s_fb, SIMSO_FB_W, SIMSO_FB_H, s, vis);
 	composite_live_windows(s_fb, s, vis);
+	draw_key_hints();
 	sys_fb_blit(s_fb, SIMSO_FB_W, SIMSO_FB_H);
 }
 
@@ -198,6 +223,11 @@ static int run_kernel_sim(uint32_t alg)
 
 int simso_main(void)
 {
+	/* Drop key events queued before this program started: the command line typed in the
+	 * shell (its spaces, digits and Enter) would otherwise be read as the Space / 1-7 /
+	 * Enter hotkeys below and change the algorithm or the step mode on its own. */
+	while (sys_poll_scancode() > 0) {}
+
 	uint32_t alg = ALG_RR;
 	uint32_t delay_ms = 0;
 	int has_seed = 0;

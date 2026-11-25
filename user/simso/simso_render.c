@@ -145,7 +145,7 @@ static void draw_legend(uint32_t *fb, uint32_t w, uint32_t h, uint32_t x, uint32
 #define TBL_HEAD_H       14U /* table header height */
 #define TBL_ROW_MAX      14U /* preferred row pitch of the table */
 #define TBL_ROW_MIN      10U /* smallest row pitch, used when there are many tasks */
-#define PANEL_MARGIN      8U /* free space kept under the bottom panel */
+#define PANEL_MARGIN     20U /* free strip under the bottom panel (simso.c draws the key hints there) */
 #define MAX_CELL         24U /* largest Gantt cell (square side) */
 
 /* Final table: header + one row per task, starting at row y.
@@ -341,7 +341,7 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 			last_task = s->tl_task[t];
 		}
 	}
-		fill_rect(fb, w, h, 16, by, w - 32, h - (by + 8), COL_PANEL);
+		fill_rect(fb, w, h, 16, by, w - 32, h - (by + PANEL_MARGIN), COL_PANEL);
 	draw_text(fb, w, h, 24,  by + 8, "ALG:", COL_TEXT);
 	draw_text(fb, w, h, 64,  by + 8, (s->alg < ALG_COUNT) ? s_alg_names[s->alg] : "?", COL_EXEC);
 	draw_text(fb, w, h, 140, by + 8, "TICKS:", COL_TEXT);
@@ -364,10 +364,11 @@ void render_gantt(uint32_t *fb, uint32_t w, uint32_t h, const struct sim *s, uin
 		sum_tat += s->tasks[i].turnaround;
 	}
 	uint32_t tt = vis; /* ticks shown so far */
-	uint32_t avg_wait = done ? (sum_wait * 100) / done : 0;
-	uint32_t avg_tat = done ? (sum_tat * 100) / done : 0;
-	uint32_t thr = tt ? (done * 100) / tt : 0; /* tasks per tick */
-	uint32_t idle_pct = tt ? (idle_seen * 100) / tt : 0;
+	/* Integer division rounded to nearest (adding half the divisor), like the host CLI. */
+	uint32_t avg_wait = done ? (sum_wait * 100 + done / 2) / done : 0;
+	uint32_t avg_tat = done ? (sum_tat * 100 + done / 2) / done : 0;
+	uint32_t thr = tt ? (done * 100 + tt / 2) / tt : 0; /* tasks per tick */
+	uint32_t idle_pct = tt ? (idle_seen * 100 + tt / 2) / tt : 0;
 
 	uint32_t ry = by + 24;
 	/* Each item: label at SUM_X0 + k * SUM_PITCH, value right after it
