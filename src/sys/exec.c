@@ -282,9 +282,9 @@ int64_t sys_readdir(size_t index, char name_out[16], uint32_t *size_out)
 
 #include "sched/sim/sim_engine.h"
 
-int64_t sys_sim_start(const void *cfg)
+int64_t sys_sim_start(const void *cfg, uint64_t flags)
 {
-	return sim_engine_start((const struct sim *)cfg, current_proc);
+	return sim_engine_start((const struct sim *)cfg, current_proc, flags);
 }
 
 int64_t sys_sim_poll(void *out_trace)

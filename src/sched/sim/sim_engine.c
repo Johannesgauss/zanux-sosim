@@ -23,10 +23,6 @@ static uint32_t s_irq_pace = 1;
 static uint32_t s_irq_subtick = 0;
 static int s_active_slot = -1;
 
-/* SIMSO process that already ran a simulation. Its first simulation is paced for the live
- * windows; every restart by the same process runs at full speed (see sim_engine_start). */
-static struct proc *s_session_owner = NULL;
-
 /* Per-slot mini-window framebuffers filled by real Ring 3 workers via SYS_WIN_BLIT. */
 static uint32_t s_win_fb[SIM_WIN_SLOTS][SIM_WIN_W * SIM_WIN_H];
 static uint8_t  s_win_valid[SIM_WIN_SLOTS];
@@ -173,7 +169,7 @@ static void abort_running(void)
 	}
 }
 
-int64_t sim_engine_start(const struct sim *in_sim, struct proc *owner)
+int64_t sim_engine_start(const struct sim *in_sim, struct proc *owner, uint64_t flags)
 {
 	if (!in_sim || !owner)
 		return -1;
@@ -186,7 +182,6 @@ int64_t sim_engine_start(const struct sim *in_sim, struct proc *owner)
 		abort_running();
 	}
 
-	bool restart = (owner == s_session_owner);
 	bool has_custom = false;
 	if (!ensure_workers(in_sim, &has_custom))
 		return -1;
@@ -195,14 +190,15 @@ int64_t sim_engine_start(const struct sim *in_sim, struct proc *owner)
 	if (!sim_init(&s_sim))
 		return -1;
 
-	/* On a restart keep the last window frames, so the cards do not go blank. */
-	for (uint32_t i = 0; !restart && i < SIM_WIN_SLOTS; i++) {
+	/* Live pacing (SIM_START_LIVE) is requested by the caller. A fast run keeps the last
+	 * window frames, so the cards do not go blank. */
+	bool live = has_custom && (flags & SIM_START_LIVE);
+	for (uint32_t i = 0; live && i < SIM_WIN_SLOTS; i++) {
 		s_win_valid[i] = 0;
 		memset(s_win_fb[i], 0, sizeof(s_win_fb[i]));
 	}
 
-	s_irq_pace = (has_custom && !restart) ? 24U : 1U;
-	s_session_owner = owner;
+	s_irq_pace = live ? 24U : 1U;
 	s_irq_subtick = 0;
 	s_active_slot = -1;
 	s_owner = owner;
@@ -273,8 +269,6 @@ struct proc *sim_engine_tick(void)
 
 void sim_engine_on_proc_exit(struct proc *proc)
 {
-	if (proc && proc == s_session_owner)
-		s_session_owner = NULL;
 	if (proc && proc == s_owner) {
 		/* SIMSO quit (e.g. Esc) while a run was in progress: stop it, so the scheduler
 		 * never hands the CPU to a dead owner. */

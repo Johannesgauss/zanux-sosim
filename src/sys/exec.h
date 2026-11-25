@@ -115,10 +115,13 @@ int64_t sys_readdir(size_t index, char name_out[16], uint32_t *size_out);
  * to run the requested policy in @p cfg. The caller should poll @ref sys_sim_poll()
  * until it returns `1`.
  *
- * @param cfg Pointer to a `struct sim_config` in caller address space.
+ * Starting while a simulation of the same process is still running replaces it.
+ *
+ * @param cfg   Pointer to a `struct sim_config` in caller address space.
+ * @param flags `SIM_START_LIVE` to pace each tick for the live windows, or `0` for full speed.
  * @return `0` on success, `-1` on invalid config, unknown policy, or busy engine.
  */
-int64_t sys_sim_start(const void *cfg);
+int64_t sys_sim_start(const void *cfg, uint64_t flags);
 
 /**
  * @brief Poll the active kernel scheduling simulation (`SYS_SIM_POLL`, syscall 13).

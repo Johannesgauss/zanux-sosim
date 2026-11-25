@@ -177,6 +177,7 @@ static void draw_key_hints(void)
 		{ "ESPACO", "passo" },
 		{ "ENTER",  "completo" },
 		{ "1-7",    "algoritmo" },
+		{ "A",      "animacao" },
 		{ "ESC",    "sair" },
 	};
 	struct zcanvas cv = { s_fb, SIMSO_FB_W, SIMSO_FB_H };
@@ -208,16 +209,19 @@ static bool is_hotkey(int32_t sc)
 {
 	return sc == 0x01 || sc == 0x10          /* Esc / Q */
 	    || (sc >= 0x02 && sc <= 0x08)        /* 1-7: algorithm */
-	    || sc == 0x39 || sc == 0x1C;         /* Space / Enter */
+	    || sc == 0x39 || sc == 0x1C          /* Space / Enter */
+	    || sc == 0x1E;                       /* A: live animation */
 }
 
-/* Starts the simulation in the kernel and draws it live. Returns 0 when it finished,
- * -1 on error, or RUN_KEY (with *key set) if a hotkey was pressed before it finished. */
-static int run_kernel_sim(uint32_t alg, int32_t *key)
+/* Starts the simulation in the kernel and draws it while it runs. With `live` the kernel
+ * paces each tick (~240 ms) so the real Ring 3 windows can be watched; without it the
+ * simulation runs at full speed. Returns 0 when it finished, -1 on error, or RUN_KEY
+ * (with *key set) if a hotkey was pressed before it finished. */
+static int run_kernel_sim(uint32_t alg, bool live, int32_t *key)
 {
 	copy_sim(&s_sim, &s_base_cfg);
 	s_sim.alg = alg;
-	if (sys_sim_start(&s_sim) < 0) return -1;
+	if (sys_sim_start(&s_sim, live ? SIM_START_LIVE : 0) < 0) return -1;
 
 	uint32_t last_draw_ms = 0;
 	int64_t r;
@@ -255,25 +259,30 @@ static void apply_view(enum view v, uint32_t *vis, uint32_t *delay_ms)
 }
 
 /* Runs the simulation and reacts to keys pressed while it runs:
- *   1-7        restart at once with that algorithm;
+ *   1-7        restart at once, at full speed, with that algorithm;
+ *   A          restart the current algorithm with the live animation;
  *   Space      cut the animation short and show the result in step-by-step mode;
  *   Enter      cut the animation short and show the full result;
  *   Esc / Q    quit.
- * The kernel runs only the first simulation of a session at the slow, live pace; every
- * restart is fast, so these keys answer immediately.
+ * `live` says whether the first run is animated; any restart caused by a key is fast
+ * (except A), so those keys answer immediately.
  * Returns 0 when a result is ready, 1 to quit, -1 on error. *alg may change. */
-static int run_interactive(uint32_t *alg, enum view *view)
+static int run_interactive(uint32_t *alg, enum view *view, bool live)
 {
 	*view = VIEW_DEFAULT;
 	for (;;) {
 		int32_t key = 0;
-		int r = run_kernel_sim(*alg, &key);
+		int r = run_kernel_sim(*alg, live, &key);
 		if (r != RUN_KEY)
 			return r;
+		live = false; /* a restart is fast unless the key below asks for the animation */
 		if (key == 0x01 || key == 0x10) {
 			return 1;
 		} else if (key >= 0x02 && key <= 0x08) {
 			*alg = (uint32_t)(key - 0x02);
+			*view = VIEW_DEFAULT;
+		} else if (key == 0x1E) {
+			live = true;
 			*view = VIEW_DEFAULT;
 		} else if (key == 0x39) {
 			*view = VIEW_STEP;
@@ -351,7 +360,7 @@ int simso_main(void)
 	if (has_overhead) s_base_cfg.overhead = overhead_override;
 
 	enum view view;
-	int rr = run_interactive(&alg, &view);
+	int rr = run_interactive(&alg, &view, true); /* the first run is the live animation */
 	if (rr < 0) return 1;
 	if (rr > 0) return 0; /* Esc / Q pressed during the first run */
 
@@ -375,10 +384,13 @@ int simso_main(void)
 		int32_t sc = sys_poll_scancode();
 		if (sc > 0 && !(sc & 0x80)) {
 			if (sc == 0x01 || sc == 0x10) return 0; /* ESC / Q */
-			else if (sc >= 0x02 && sc <= 0x08) {
-				alg = (uint32_t)(sc - 0x02);
+			else if ((sc >= 0x02 && sc <= 0x08) || sc == 0x1E) {
+				/* 1-7: switch algorithm (fast). A: replay the current one, animated. */
+				bool live = (sc == 0x1E);
+				if (!live)
+					alg = (uint32_t)(sc - 0x02);
 				enum view v;
-				int rr2 = run_interactive(&alg, &v);
+				int rr2 = run_interactive(&alg, &v, live);
 				if (rr2 > 0) return 0; /* Esc / Q pressed while it ran */
 				if (rr2 == 0) {
 					vis = (delay_ms > 0 && s_sim.total_ticks > 0) ? 1 : s_sim.total_ticks;

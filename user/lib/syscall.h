@@ -126,9 +126,13 @@ static inline int64_t sys_readdir(size_t index, char name_out[16], uint32_t *siz
 	return syscall3(SYS_READDIR, (uint64_t)index, (uint64_t)name_out, (uint64_t)size_out);
 }
 
-static inline int64_t sys_sim_start(const void *cfg)
+/* Flag for sys_sim_start(): pace each tick so the live Ring 3 windows can be watched.
+ * Without it the simulation runs at full speed. Keep in sync with sim_engine.h. */
+#define SIM_START_LIVE 1ULL
+
+static inline int64_t sys_sim_start(const void *cfg, uint64_t flags)
 {
-	return syscall1(SYS_SIM_START, (uint64_t)cfg);
+	return syscall3(SYS_SIM_START, (uint64_t)cfg, flags, 0);
 }
 
 static inline int64_t sys_sim_poll(void *out_trace)

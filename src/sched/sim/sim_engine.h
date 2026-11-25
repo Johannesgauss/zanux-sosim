@@ -15,7 +15,12 @@
 #define SIM_WIN_W     144U
 #define SIM_WIN_H     72U
 
-int64_t sim_engine_start(const struct sim *in_sim, struct proc *owner);
+/* Flag for sim_engine_start(): pace each simulation tick (24 IRQ0) so the live Ring 3
+ * windows can be watched. Without it the simulation runs at full speed (1 IRQ0 per tick).
+ * Keep in sync with SIM_START_LIVE in user/lib/syscall.h. */
+#define SIM_START_LIVE 1ULL
+
+int64_t sim_engine_start(const struct sim *in_sim, struct proc *owner, uint64_t flags);
 int64_t sim_engine_poll(struct sim *out_sim);
 bool sim_engine_is_active(void);
 struct proc *sim_engine_tick(void);
