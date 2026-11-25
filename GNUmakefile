@@ -5,7 +5,7 @@
 .DELETE_ON_ERROR:
 
 # Default user QEMU flags. These are appended to the QEMU command calls.
-QEMUFLAGS := -m 2G -enable-kvm -cpu host \
+QEMUFLAGS := -m 2G $(if $(wildcard /dev/kvm),-enable-kvm -cpu host,-cpu max) \
     -display sdl \
     -audiodev pipewire,id=snd0 \
     -machine q35,pcspk-audiodev=snd0 \
